@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from uuid import uuid4
 
 from job_hunt_agent.domain.models import ApplicationDraft, InterviewDraft
@@ -78,8 +78,12 @@ class JobHuntToolHandlers:
         return self.reporting_service.list_follow_ups(today=date.today(), days=days)
 
     def generate_review(self, kind: str = "daily") -> str:
+        if kind == "weekly":
+            return self.reporting_service.generate_weekly_review(
+                start_day=date.today() - timedelta(days=6)
+            )
         if kind != "daily":
-            return "Weekly review generation will use the same event data in the next milestone."
+            return "Unsupported review kind. Use daily or weekly."
         return self.reporting_service.generate_daily_review(day=date.today())
 
 

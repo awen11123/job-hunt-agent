@@ -6,6 +6,10 @@ The project is designed for AI Agent and LLM application engineer recruiting. Pu
 schemas, prompts, tests, and synthetic examples live in GitHub. Real applications,
 interview notes, contacts, Notion page URLs, and API keys stay outside the repository.
 
+Core tools record applications, update stages, save interview notes, analyze interviews,
+list follow-ups across applications/interviews/review tasks, and generate daily or weekly
+reviews.
+
 ## Local Usage
 
 ```bash
