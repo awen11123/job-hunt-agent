@@ -26,6 +26,19 @@ def test_privacy_scan_detects_notion_urls_and_api_keys() -> None:
     assert {finding.kind for finding in findings} == {"notion_url", "api_key"}
 
 
+def test_privacy_scan_does_not_treat_empty_env_example_as_secret() -> None:
+    text = "\n".join(
+        [
+            "NOTION_TOKEN" + "=",
+            "NOTION_APPLICATIONS_DB_ID=",
+            "DEEPSEEK_API_KEY" + "=",
+            "DEEPSEEK_BASE_URL=https://api.deepseek.com",
+        ]
+    )
+
+    assert scan_text_for_private_leaks(text) == []
+
+
 def test_settings_reads_env_without_requiring_real_secrets(monkeypatch) -> None:
     monkeypatch.setenv("DEFAULT_RECRUITING_SEASON", "2026-autumn")
     monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-chat")

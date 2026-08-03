@@ -10,7 +10,7 @@ class PrivacyFinding:
 
 NOTION_URL_RE = re.compile(r"https://(?:www\.)?notion\.so/[^\s)>\"]+", re.IGNORECASE)
 API_KEY_RE = re.compile(r"\b(?:sk|ntn|secret)[-_][A-Za-z0-9_-]{12,}\b")
-ENV_SECRET_RE = re.compile(r"\b(?:NOTION_TOKEN|DEEPSEEK_API_KEY|GITHUB_TOKEN)\s*=\s*\S+")
+ENV_SECRET_RE = re.compile(r"\b(?:NOTION_TOKEN|DEEPSEEK_API_KEY|GITHUB_TOKEN)[ \t]*=[ \t]*[^ \t\r\n]+")
 
 
 def scan_text_for_private_leaks(text: str) -> list[PrivacyFinding]:
