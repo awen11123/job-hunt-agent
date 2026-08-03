@@ -49,8 +49,25 @@ class NotionClient:
     def retrieve_page(self, page_id: str) -> dict:
         return self._request("GET", f"/pages/{page_id}")
 
+    def retrieve_data_source(self, data_source_id: str) -> dict:
+        return self._request("GET", f"/data_sources/{data_source_id}")
+
     def retrieve_database(self, database_id: str) -> dict:
         return self._request("GET", f"/databases/{database_id}")
+
+    def update_data_source_title(self, data_source_id: str, title: str) -> dict:
+        return self._request(
+            "PATCH",
+            f"/data_sources/{data_source_id}",
+            json={"title": title_payload(title)},
+        )
+
+    def update_database_title(self, database_id: str, title: str) -> dict:
+        return self._request(
+            "PATCH",
+            f"/databases/{database_id}",
+            json={"title": title_payload(title)},
+        )
 
     def find_database_by_title(self, title: str, parent_page_id: str | None = None) -> dict | None:
         response = self._request(
@@ -126,3 +143,7 @@ class NotionClient:
 
 def notion_id_equal(left: str, right: str) -> bool:
     return left.replace("-", "") == right.replace("-", "")
+
+
+def title_payload(title: str) -> list[dict[str, Any]]:
+    return [{"type": "text", "text": {"content": title}}]

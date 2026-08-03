@@ -4,10 +4,10 @@ Create one private Notion page that will hold the recruiting tracker, then share
 that page with your Notion integration. The local bootstrap script creates four private
 data sources under it:
 
-- Applications
-- Activity Log
-- Interviews
-- Review Tasks
+- 投递记录
+- 流程日志
+- 面试记录
+- 复习任务
 
 Set these local user environment variables first:
 

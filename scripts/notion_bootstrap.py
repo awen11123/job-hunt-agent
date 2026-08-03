@@ -7,7 +7,11 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from job_hunt_agent.config import Settings  # noqa: E402
-from job_hunt_agent.notion.bootstrap import NotionBootstrapper, set_user_environment_value  # noqa: E402
+from job_hunt_agent.notion.bootstrap import (  # noqa: E402
+    BootstrappedDatabases,
+    NotionBootstrapper,
+    set_user_environment_value,
+)
 from job_hunt_agent.notion.client import NotionClient  # noqa: E402
 
 
@@ -43,9 +47,23 @@ def has_database_configuration(settings: Settings) -> bool:
     )
 
 
+def configured_database_ids(settings: Settings) -> BootstrappedDatabases:
+    return BootstrappedDatabases(
+        applications=settings.notion_applications_db_id or "",
+        activity=settings.notion_activity_db_id or "",
+        interviews=settings.notion_interviews_db_id or "",
+        review_tasks=settings.notion_review_tasks_db_id or "",
+    )
+
+
 def main() -> int:
     settings = Settings.from_env()
     if has_database_configuration(settings):
+        if settings.notion_token:
+            client = NotionClient(settings.notion_token)
+            bootstrapper = NotionBootstrapper(client)
+            bootstrapper.rename_configured_databases(configured_database_ids(settings))
+            print("notion_database_titles=localized")
         print("notion_databases=already_configured")
         return 0
 

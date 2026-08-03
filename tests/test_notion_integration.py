@@ -13,6 +13,8 @@ class FakeNotionClient:
         self.created_databases: list[dict] = []
         self.created_pages: list[dict] = []
         self.updated_pages: list[tuple[str, dict]] = []
+        self.updated_data_source_titles: list[tuple[str, str]] = []
+        self.updated_database_titles: list[tuple[str, str]] = []
         self.queried_databases: list[tuple[str, dict | None]] = []
         self.search_results: dict[str, dict] = {}
 
@@ -43,8 +45,22 @@ class FakeNotionClient:
     def retrieve_page(self, page_id: str) -> dict:
         return {"id": page_id, "properties": {}}
 
+    def retrieve_data_source(self, data_source_id: str) -> dict:
+        return {
+            "id": data_source_id,
+            "parent": {"type": "database_id", "database_id": f"db_{data_source_id}"},
+        }
+
     def find_database_by_title(self, title: str, parent_page_id: str | None = None) -> dict | None:
         return self.search_results.get(title)
+
+    def update_data_source_title(self, data_source_id: str, title: str) -> dict:
+        self.updated_data_source_titles.append((data_source_id, title))
+        return {"id": data_source_id}
+
+    def update_database_title(self, database_id: str, title: str) -> dict:
+        self.updated_database_titles.append((database_id, title))
+        return {"id": database_id}
 
 
 def test_bootstrap_creates_databases_with_relations() -> None:
@@ -58,10 +74,10 @@ def test_bootstrap_creates_databases_with_relations() -> None:
     assert ids.interviews == "ds_3"
     assert ids.review_tasks == "ds_4"
     assert [item["title"] for item in client.created_databases] == [
-        "Applications",
-        "Activity Log",
-        "Interviews",
-        "Review Tasks",
+        "投递记录",
+        "流程日志",
+        "面试记录",
+        "复习任务",
     ]
     activity_relation = client.created_databases[1]["properties"]["关联投递"]["relation"]
     review_relation = client.created_databases[3]["properties"]["来源面试"]["relation"]
@@ -73,20 +89,35 @@ def test_bootstrap_creates_databases_with_relations() -> None:
 
 def test_bootstrap_reuses_existing_database_by_title_before_creating() -> None:
     client = FakeNotionClient()
-    client.search_results["Applications"] = {"id": "existing_apps_ds"}
+    client.search_results["投递记录"] = {"id": "existing_apps_ds"}
     bootstrapper = NotionBootstrapper(client)
 
     ids = bootstrapper.bootstrap(parent_page_id="parent_1")
 
     assert ids.applications == "existing_apps_ds"
     assert [item["title"] for item in client.created_databases] == [
-        "Activity Log",
-        "Interviews",
-        "Review Tasks",
+        "流程日志",
+        "面试记录",
+        "复习任务",
     ]
     activity_relation = client.created_databases[0]["properties"]["关联投递"]["relation"]
     assert activity_relation["data_source_id"] == "existing_apps_ds"
     assert activity_relation["single_property"] == {}
+
+
+def test_bootstrap_renames_legacy_english_database_titles() -> None:
+    client = FakeNotionClient()
+    client.search_results["Applications"] = {
+        "id": "existing_apps_ds",
+        "parent": {"type": "database_id", "database_id": "existing_apps_db"},
+    }
+    bootstrapper = NotionBootstrapper(client)
+
+    ids = bootstrapper.bootstrap(parent_page_id="parent_1")
+
+    assert ids.applications == "existing_apps_ds"
+    assert client.updated_data_source_titles[0] == ("existing_apps_ds", "投递记录")
+    assert client.updated_database_titles[0] == ("existing_apps_db", "投递记录")
 
 
 def test_notion_repository_save_application_returns_notion_page_id() -> None:
@@ -221,7 +252,7 @@ def test_notion_client_uses_current_data_source_api(monkeypatch) -> None:
     monkeypatch.setattr(httpx, "Client", client_factory)
     client = NotionClient("fake-token")
 
-    client.create_database("parent_1", "Applications", {"公司": {"title": {}}})
+    client.create_database("parent_1", "投递记录", {"公司": {"title": {}}})
     client.create_page("ds_1", {"公司": {"title": []}})
     client.query_database("ds_1")
 
@@ -233,6 +264,29 @@ def test_notion_client_uses_current_data_source_api(monkeypatch) -> None:
         "data_source_id": "ds_1",
     }
     assert calls[2]["url"].endswith("/data_sources/ds_1/query")
+
+
+def test_notion_client_updates_data_source_and_database_titles(monkeypatch) -> None:
+    calls: list[dict] = []
+    responses = [{"id": "ds_1"}, {"id": "db_1"}]
+
+    def client_factory(**kwargs):
+        return RecordingHttpClient(calls, responses)
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", client_factory)
+    client = NotionClient("fake-token")
+
+    client.update_data_source_title("ds_1", "投递记录")
+    client.update_database_title("db_1", "投递记录")
+
+    assert calls[0]["method"] == "PATCH"
+    assert calls[0]["url"].endswith("/data_sources/ds_1")
+    assert calls[0]["json"]["title"][0]["text"]["content"] == "投递记录"
+    assert calls[1]["method"] == "PATCH"
+    assert calls[1]["url"].endswith("/databases/db_1")
+    assert calls[1]["json"]["title"][0]["text"]["content"] == "投递记录"
 
 
 def test_find_database_by_title_filters_matches_to_parent_page(monkeypatch) -> None:

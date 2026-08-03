@@ -12,6 +12,20 @@ class BootstrappedDatabases:
     review_tasks: str
 
 
+@dataclass(frozen=True)
+class DatabaseTitle:
+    current: str
+    legacy: tuple[str, ...] = ()
+
+
+DATABASE_TITLES = {
+    "applications": DatabaseTitle("投递记录", ("Applications",)),
+    "activity": DatabaseTitle("流程日志", ("Activity Log",)),
+    "interviews": DatabaseTitle("面试记录", ("Interviews",)),
+    "review_tasks": DatabaseTitle("复习任务", ("Review Tasks",)),
+}
+
+
 class NotionBootstrapper:
     def __init__(self, client: NotionClient) -> None:
         self.client = client
@@ -19,31 +33,60 @@ class NotionBootstrapper:
     def bootstrap(self, parent_page_id: str) -> BootstrappedDatabases:
         applications = self._get_or_create_database(
             parent_page_id,
-            "Applications",
+            DATABASE_TITLES["applications"],
             application_properties(),
         )
         activity = self._get_or_create_database(
             parent_page_id,
-            "Activity Log",
+            DATABASE_TITLES["activity"],
             activity_properties(applications),
         )
         interviews = self._get_or_create_database(
             parent_page_id,
-            "Interviews",
+            DATABASE_TITLES["interviews"],
             interview_properties(applications),
         )
         review_tasks = self._get_or_create_database(
             parent_page_id,
-            "Review Tasks",
+            DATABASE_TITLES["review_tasks"],
             review_task_properties(interviews),
         )
         return BootstrappedDatabases(applications, activity, interviews, review_tasks)
 
-    def _get_or_create_database(self, parent_page_id: str, title: str, properties: dict) -> str:
-        existing = self.client.find_database_by_title(title, parent_page_id=parent_page_id)
+    def rename_configured_databases(self, database_ids: BootstrappedDatabases) -> None:
+        for data_source_id, title in [
+            (database_ids.applications, DATABASE_TITLES["applications"].current),
+            (database_ids.activity, DATABASE_TITLES["activity"].current),
+            (database_ids.interviews, DATABASE_TITLES["interviews"].current),
+            (database_ids.review_tasks, DATABASE_TITLES["review_tasks"].current),
+        ]:
+            data_source = self.client.retrieve_data_source(data_source_id)
+            self._rename_data_source(data_source, title)
+
+    def _get_or_create_database(
+        self,
+        parent_page_id: str,
+        title: DatabaseTitle,
+        properties: dict,
+    ) -> str:
+        existing = self.client.find_database_by_title(title.current, parent_page_id=parent_page_id)
         if existing is not None:
             return existing["id"]
-        return first_data_source_id(self.client.create_database(parent_page_id, title, properties))
+        for legacy_title in title.legacy:
+            existing = self.client.find_database_by_title(legacy_title, parent_page_id=parent_page_id)
+            if existing is not None:
+                self._rename_data_source(existing, title.current)
+                return existing["id"]
+        return first_data_source_id(
+            self.client.create_database(parent_page_id, title.current, properties)
+        )
+
+    def _rename_data_source(self, data_source: dict, title: str) -> None:
+        data_source_id = data_source["id"]
+        self.client.update_data_source_title(data_source_id, title)
+        database_id = parent_database_id(data_source)
+        if database_id:
+            self.client.update_database_title(database_id, title)
 
 
 def first_data_source_id(database: dict) -> str:
@@ -51,6 +94,13 @@ def first_data_source_id(database: dict) -> str:
     if data_sources:
         return data_sources[0]["id"]
     return database["id"]
+
+
+def parent_database_id(data_source: dict) -> str | None:
+    parent = data_source.get("parent", {})
+    if parent.get("type") == "database_id":
+        return parent.get("database_id")
+    return None
 
 
 def application_properties() -> dict:

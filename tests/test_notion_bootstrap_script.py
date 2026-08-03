@@ -49,3 +49,39 @@ def test_main_reports_already_configured_before_requiring_token(monkeypatch, cap
 
     assert notion_bootstrap.main() == 0
     assert capsys.readouterr().out.strip() == "notion_databases=already_configured"
+
+
+class FullyConfiguredSettingsWithToken(FullyConfiguredSettings):
+    notion_token = "fake-token"
+
+
+class RecordingBootstrapper:
+    renamed_ids = None
+
+    def __init__(self, client) -> None:
+        self.client = client
+
+    def rename_configured_databases(self, database_ids) -> None:
+        RecordingBootstrapper.renamed_ids = database_ids
+
+
+def test_main_localizes_configured_database_titles_when_token_is_available(
+    monkeypatch,
+    capsys,
+) -> None:
+    RecordingBootstrapper.renamed_ids = None
+    monkeypatch.setattr(
+        notion_bootstrap.Settings,
+        "from_env",
+        staticmethod(lambda: FullyConfiguredSettingsWithToken()),
+    )
+    monkeypatch.setattr(notion_bootstrap, "NotionClient", lambda token: object())
+    monkeypatch.setattr(notion_bootstrap, "NotionBootstrapper", RecordingBootstrapper)
+
+    assert notion_bootstrap.main() == 0
+
+    assert RecordingBootstrapper.renamed_ids.applications == "apps_db"
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "notion_database_titles=localized",
+        "notion_databases=already_configured",
+    ]
