@@ -27,6 +27,11 @@ def test_application_draft_tracks_noncritical_missing_fields() -> None:
     ]
 
 
+def test_application_draft_rejects_whitespace_only_required_fields() -> None:
+    with pytest.raises(ValidationError):
+        ApplicationDraft(company=" ", role="LLM Application Engineer")
+
+
 def test_application_record_requires_company_role_and_season() -> None:
     record = ApplicationRecord(
         id="app_1",
@@ -71,6 +76,14 @@ def test_interview_analysis_rejects_fabricated_answer_summary() -> None:
             weaknesses=[],
             review_tasks=[],
             inference_notes=[],
+        )
+
+
+def test_interview_analysis_requires_source_excerpts_for_performance_judgment() -> None:
+    with pytest.raises(ValidationError):
+        InterviewAnalysis(
+            overview="One technical interview.",
+            evidence_based_performance=["The candidate struggled with retrieval evaluation."],
         )
 
 

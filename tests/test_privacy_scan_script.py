@@ -33,6 +33,24 @@ def test_privacy_scan_script_runs_as_file() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_privacy_scan_script_redacts_detected_values(tmp_path: Path) -> None:
+    leaked = tmp_path / "leaked.md"
+    leaked.write_text("token " + "sk-" + "abc123456789SECRET", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "scripts/privacy_scan.py", str(leaked)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "api_key" in result.stdout
+    assert "sk-" + "abc123456789SECRET" not in result.stdout
+    assert "<redacted>" in result.stdout
+
+
 def test_scan_paths_skips_python_cache_directories(tmp_path: Path) -> None:
     cache_dir = tmp_path / "__pycache__"
     cache_dir.mkdir()

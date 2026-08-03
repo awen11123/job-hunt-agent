@@ -83,7 +83,16 @@ class ApplicationService:
                 operation_id=operation_id,
             )
 
-        record = self.repository.get_application(application_id)
+        try:
+            record = self.repository.get_application(application_id)
+        except KeyError as exc:
+            return ToolReceipt(
+                status="failed",
+                message="Application not found.",
+                record_id=application_id,
+                operation_id=operation_id,
+                warnings=[type(exc).__name__],
+            )
         now = datetime.now(timezone.utc)
         pending_event = ActivityEvent(
             id=self.repository.next_id("evt"),

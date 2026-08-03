@@ -27,7 +27,16 @@ class InterviewService:
                 operation_id=operation_id,
             )
 
-        self.repository.get_application(draft.application_id)
+        try:
+            self.repository.get_application(draft.application_id)
+        except KeyError as exc:
+            return ToolReceipt(
+                status="failed",
+                message="Application not found.",
+                record_id=draft.application_id,
+                operation_id=operation_id,
+                warnings=[type(exc).__name__],
+            )
         now = datetime.now(timezone.utc)
         interview = InterviewRecord(
             **draft.model_dump(),
@@ -63,9 +72,47 @@ class InterviewService:
                 operation_id=operation_id,
             )
 
-        interview = self.repository.get_interview(interview_id)
-        analysis = self.analyzer.analyze(interview.raw_notes)
+        try:
+            interview = self.repository.get_interview(interview_id)
+        except KeyError as exc:
+            return ToolReceipt(
+                status="failed",
+                message="Interview not found.",
+                record_id=interview_id,
+                operation_id=operation_id,
+                warnings=[type(exc).__name__],
+            )
+
         now = datetime.now(timezone.utc)
+        try:
+            analysis = self.analyzer.analyze(interview.raw_notes)
+            self._validate_source_excerpts(analysis.source_excerpts, interview.raw_notes)
+        except Exception as exc:
+            failed = interview.model_copy(
+                update={
+                    "analysis_status": InterviewAnalysisStatus.FAILED,
+                    "updated_at": now,
+                }
+            )
+            self.repository.save_interview(failed)
+            event = ActivityEvent(
+                id=self.repository.next_id("evt"),
+                application_id=interview.application_id,
+                operation_id=operation_id,
+                event_type=EventType.INTERVIEW_ANALYZED,
+                occurred_at=now,
+                note=interview.id,
+                sync_status=SyncStatus.FAILED,
+            )
+            self.repository.save_activity_event(event)
+            return ToolReceipt(
+                status="failed",
+                message="Interview analysis failed.",
+                record_id=interview.id,
+                operation_id=operation_id,
+                warnings=[type(exc).__name__],
+            )
+
         updated = interview.model_copy(
             update={
                 "structured_analysis": analysis,
@@ -77,14 +124,28 @@ class InterviewService:
         )
         self.repository.save_interview(updated)
         for candidate in analysis.review_tasks:
-            task = ReviewTaskRecord(
-                **candidate.model_dump(),
-                id=self.repository.next_id("rev"),
-                source_interview_ids=[interview.id],
-                created_at=now,
-                updated_at=now,
-            )
-            self.repository.save_review_task(task)
+            existing = self.repository.find_review_task_by_topic(candidate.category, candidate.topic)
+            if existing is not None:
+                source_ids = list(existing.source_interview_ids)
+                if interview.id not in source_ids:
+                    source_ids.append(interview.id)
+                task = existing.model_copy(
+                    update={
+                        "occurrences": existing.occurrences + candidate.occurrences,
+                        "source_interview_ids": source_ids,
+                        "updated_at": now,
+                    }
+                )
+                self.repository.save_review_task(task)
+            else:
+                task = ReviewTaskRecord(
+                    **candidate.model_dump(),
+                    id=self.repository.next_id("rev"),
+                    source_interview_ids=[interview.id],
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.repository.save_review_task(task)
         event = ActivityEvent(
             id=self.repository.next_id("evt"),
             application_id=interview.application_id,
@@ -101,3 +162,8 @@ class InterviewService:
             record_id=interview.id,
             operation_id=operation_id,
         )
+
+    def _validate_source_excerpts(self, source_excerpts: list[str], raw_notes: str) -> None:
+        missing = [excerpt for excerpt in source_excerpts if excerpt not in raw_notes]
+        if missing:
+            raise ValueError("source excerpt missing from raw notes")

@@ -1,11 +1,20 @@
 from datetime import date
 
-from job_hunt_agent.domain.models import ApplicationDraft
+from job_hunt_agent.domain.models import ApplicationDraft, InterviewAnalysis
 from job_hunt_agent.domain.statuses import RecruitingStage
-from job_hunt_agent.mcp_server import TOOL_NAMES
+from job_hunt_agent.mcp_server import TOOL_NAMES, JobHuntToolHandlers
 from job_hunt_agent.repositories import InMemoryJobHuntRepository
 from job_hunt_agent.services.applications import ApplicationService
+from job_hunt_agent.services.interviews import InterviewService
 from job_hunt_agent.services.reporting import ReportingService
+
+
+class NoopAnalyzer:
+    model_version = "noop"
+    prompt_version = "noop"
+
+    def analyze(self, raw_notes: str) -> InterviewAnalysis:
+        return InterviewAnalysis(overview=raw_notes)
 
 
 def test_list_follow_ups_includes_deadlines_and_next_steps() -> None:
@@ -59,3 +68,21 @@ def test_mcp_tool_names_match_design() -> None:
         "list_follow_ups",
         "generate_review",
     ]
+
+
+def test_mcp_record_application_accepts_client_operation_id_for_retries() -> None:
+    repo = InMemoryJobHuntRepository()
+    handlers = JobHuntToolHandlers(
+        application_service=ApplicationService(repo, default_season="2026-autumn"),
+        interview_service=InterviewService(repo, analyzer=NoopAnalyzer()),
+        reporting_service=ReportingService(repo),
+    )
+    payload = {"company": "DeepSeek", "role": "LLM Application Engineer"}
+
+    first = handlers.record_application(payload, operation_id="client-op-1")
+    second = handlers.record_application(payload, operation_id="client-op-1")
+
+    assert first["status"] == "created"
+    assert second["status"] == "unchanged"
+    assert len(repo.applications) == 1
+    assert len(repo.activity_events) == 1

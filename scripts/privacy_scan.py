@@ -36,7 +36,7 @@ def main(argv: list[str]) -> int:
     paths = [Path(arg) for arg in argv] if argv else [Path(".")]
     findings = scan_paths(paths)
     for finding in findings:
-        print(f"{finding.kind}: {finding.value}")
+        print(f"{finding.kind}: {finding.redacted_value}")
     return 1 if findings else 0
 
 

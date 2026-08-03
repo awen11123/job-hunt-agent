@@ -13,7 +13,11 @@ from job_hunt_agent.domain.statuses import (
 )
 
 
-class ApplicationDraft(BaseModel):
+class JobHuntModel(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class ApplicationDraft(JobHuntModel):
     company: str = Field(min_length=1)
     role: str = Field(min_length=1)
     season: str | None = None
@@ -43,10 +47,10 @@ class ApplicationRecord(ApplicationDraft):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
 
-class ActivityEvent(BaseModel):
+class ActivityEvent(JobHuntModel):
     id: str
     application_id: str
     operation_id: str
@@ -58,7 +62,7 @@ class ActivityEvent(BaseModel):
     sync_status: SyncStatus = SyncStatus.PENDING
 
 
-class InterviewDraft(BaseModel):
+class InterviewDraft(JobHuntModel):
     application_id: str
     round_name: str = Field(min_length=1)
     scheduled_at: datetime | None = None
@@ -68,7 +72,7 @@ class InterviewDraft(BaseModel):
     self_score: int | None = Field(default=None, ge=1, le=10)
 
 
-class ReviewTaskCandidate(BaseModel):
+class ReviewTaskCandidate(JobHuntModel):
     category: str = Field(min_length=1)
     topic: str = Field(min_length=1)
     action: str = Field(min_length=10)
@@ -78,7 +82,7 @@ class ReviewTaskCandidate(BaseModel):
     confirmation_status: Literal["pending", "confirmed", "dismissed"] = "pending"
 
 
-class InterviewAnalysis(BaseModel):
+class InterviewAnalysis(JobHuntModel):
     overview: str
     technical_questions: list[str] = Field(default_factory=list)
     project_questions: list[str] = Field(default_factory=list)
@@ -86,6 +90,7 @@ class InterviewAnalysis(BaseModel):
     reverse_questions: list[str] = Field(default_factory=list)
     answer_summary: str | None = None
     answer_summary_source_present: bool = False
+    source_excerpts: list[str] = Field(default_factory=list)
     evidence_based_performance: list[str] = Field(default_factory=list)
     better_answer_ideas: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
@@ -96,6 +101,8 @@ class InterviewAnalysis(BaseModel):
     def answer_summary_must_have_source(self) -> "InterviewAnalysis":
         if self.answer_summary and not self.answer_summary_source_present:
             raise ValueError("answer_summary requires answer_summary_source_present=true")
+        if (self.answer_summary or self.evidence_based_performance) and not self.source_excerpts:
+            raise ValueError("source_excerpts are required for evidence-backed judgments")
         return self
 
 

@@ -75,3 +75,18 @@ def test_update_application_stage_writes_pending_then_completed_event() -> None:
     assert receipt.status == "updated"
     assert repo.get_application(created.record_id).current_stage is RecruitingStage.INTERVIEW
     assert repo.activity_events[-1].sync_status == "completed"
+
+
+def test_update_application_stage_returns_failed_receipt_for_unknown_application() -> None:
+    repo = InMemoryJobHuntRepository()
+    service = ApplicationService(repo, default_season="2026-autumn")
+
+    receipt = service.update_application_stage(
+        application_id="missing",
+        to_stage=RecruitingStage.INTERVIEW,
+        operation_id="op-stage-missing",
+    )
+
+    assert receipt.status == "failed"
+    assert receipt.record_id == "missing"
+    assert receipt.warnings == ["KeyError"]

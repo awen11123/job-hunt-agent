@@ -7,6 +7,10 @@ class PrivacyFinding:
     kind: str
     value: str
 
+    @property
+    def redacted_value(self) -> str:
+        return "<redacted>"
+
 
 NOTION_URL_RE = re.compile(r"https://(?:www\.)?notion\.so/[^\s)>\"]+", re.IGNORECASE)
 API_KEY_RE = re.compile(r"\b(?:sk|ntn|secret)[-_][A-Za-z0-9_-]{12,}\b")

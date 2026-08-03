@@ -8,7 +8,7 @@ from job_hunt_agent.domain.models import (
     InterviewRecord,
     ReviewTaskRecord,
 )
-from job_hunt_agent.matching import application_key
+from job_hunt_agent.matching import application_key, normalize_text
 
 
 def utc_now() -> datetime:
@@ -46,6 +46,9 @@ class JobHuntRepository(Protocol):
         ...
 
     def save_review_task(self, record: ReviewTaskRecord) -> ReviewTaskRecord:
+        ...
+
+    def find_review_task_by_topic(self, category: str, topic: str) -> ReviewTaskRecord | None:
         ...
 
 
@@ -99,6 +102,13 @@ class InMemoryJobHuntRepository:
     def save_review_task(self, record: ReviewTaskRecord) -> ReviewTaskRecord:
         self.review_tasks[record.id] = record
         return record
+
+    def find_review_task_by_topic(self, category: str, topic: str) -> ReviewTaskRecord | None:
+        expected = (normalize_text(category), normalize_text(topic))
+        for record in self.review_tasks.values():
+            if (normalize_text(record.category), normalize_text(record.topic)) == expected:
+                return record
+        return None
 
 
 class NotionJobHuntRepository:
