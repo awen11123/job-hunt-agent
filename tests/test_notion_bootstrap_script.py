@@ -57,6 +57,7 @@ class FullyConfiguredSettingsWithToken(FullyConfiguredSettings):
 
 class RecordingBootstrapper:
     renamed_ids = None
+    configured_view_ids = None
 
     def __init__(self, client) -> None:
         self.client = client
@@ -64,12 +65,16 @@ class RecordingBootstrapper:
     def rename_configured_databases(self, database_ids) -> None:
         RecordingBootstrapper.renamed_ids = database_ids
 
+    def configure_readable_views(self, database_ids) -> None:
+        RecordingBootstrapper.configured_view_ids = database_ids
+
 
 def test_main_localizes_configured_database_titles_when_token_is_available(
     monkeypatch,
     capsys,
 ) -> None:
     RecordingBootstrapper.renamed_ids = None
+    RecordingBootstrapper.configured_view_ids = None
     monkeypatch.setattr(
         notion_bootstrap.Settings,
         "from_env",
@@ -81,7 +86,9 @@ def test_main_localizes_configured_database_titles_when_token_is_available(
     assert notion_bootstrap.main() == 0
 
     assert RecordingBootstrapper.renamed_ids.applications == "apps_db"
+    assert RecordingBootstrapper.configured_view_ids.applications == "apps_db"
     assert capsys.readouterr().out.strip().splitlines() == [
         "notion_database_titles=localized",
+        "notion_views=configured",
         "notion_databases=already_configured",
     ]

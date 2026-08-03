@@ -69,6 +69,28 @@ class NotionClient:
             json={"title": title_payload(title)},
         )
 
+    def list_views(self, database_id: str) -> list[dict]:
+        results: list[dict] = []
+        cursor: str | None = None
+        while True:
+            params: dict[str, Any] = {"database_id": database_id}
+            if cursor is not None:
+                params["start_cursor"] = cursor
+            response = self._request("GET", "/views", params=params)
+            results.extend(response.get("results", []))
+            if not response.get("has_more"):
+                return results
+            cursor = response.get("next_cursor")
+
+    def retrieve_view(self, view_id: str) -> dict:
+        return self._request("GET", f"/views/{view_id}")
+
+    def create_view(self, payload: dict[str, Any]) -> dict:
+        return self._request("POST", "/views", json=payload)
+
+    def update_view(self, view_id: str, payload: dict[str, Any]) -> dict:
+        return self._request("PATCH", f"/views/{view_id}", json=payload)
+
     def find_database_by_title(self, title: str, parent_page_id: str | None = None) -> dict | None:
         response = self._request(
             "POST",
@@ -113,7 +135,13 @@ class NotionClient:
                 return results
             cursor = response.get("next_cursor")
 
-    def _request(self, method: str, path: str, json: dict | None = None) -> dict:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        json: dict | None = None,
+        params: dict | None = None,
+    ) -> dict:
         import httpx
 
         last_error: Exception | None = None
@@ -125,6 +153,7 @@ class NotionClient:
                         f"{self.base_url}{path}",
                         headers=self.headers,
                         json=json,
+                        params=params,
                     )
                 try:
                     response.raise_for_status()

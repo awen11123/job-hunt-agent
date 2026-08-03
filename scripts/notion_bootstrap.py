@@ -62,8 +62,11 @@ def main() -> int:
         if settings.notion_token:
             client = NotionClient(settings.notion_token)
             bootstrapper = NotionBootstrapper(client)
-            bootstrapper.rename_configured_databases(configured_database_ids(settings))
+            database_ids = configured_database_ids(settings)
+            bootstrapper.rename_configured_databases(database_ids)
             print("notion_database_titles=localized")
+            bootstrapper.configure_readable_views(database_ids)
+            print("notion_views=configured")
         print("notion_databases=already_configured")
         return 0
 

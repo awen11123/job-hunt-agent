@@ -15,8 +15,11 @@ class FakeNotionClient:
         self.updated_pages: list[tuple[str, dict]] = []
         self.updated_data_source_titles: list[tuple[str, str]] = []
         self.updated_database_titles: list[tuple[str, str]] = []
+        self.updated_views: list[tuple[str, dict]] = []
+        self.created_views: list[dict] = []
         self.queried_databases: list[tuple[str, dict | None]] = []
         self.search_results: dict[str, dict] = {}
+        self.views_by_database: dict[str, list[dict]] = {}
 
     def create_database(self, parent_page_id: str, title: str, properties: dict) -> dict:
         sequence = len(self.created_databases) + 1
@@ -48,7 +51,7 @@ class FakeNotionClient:
     def retrieve_data_source(self, data_source_id: str) -> dict:
         return {
             "id": data_source_id,
-            "parent": {"type": "database_id", "database_id": f"db_{data_source_id}"},
+            "parent": {"type": "database_id", "database_id": f"{data_source_id}_database"},
         }
 
     def find_database_by_title(self, title: str, parent_page_id: str | None = None) -> dict | None:
@@ -61,6 +64,25 @@ class FakeNotionClient:
     def update_database_title(self, database_id: str, title: str) -> dict:
         self.updated_database_titles.append((database_id, title))
         return {"id": database_id}
+
+    def list_views(self, database_id: str) -> list[dict]:
+        return self.views_by_database.get(database_id, [])
+
+    def retrieve_view(self, view_id: str) -> dict:
+        for views in self.views_by_database.values():
+            for view in views:
+                if view["id"] == view_id:
+                    return view
+        return {"id": view_id, "name": "Default view", "type": "table"}
+
+    def update_view(self, view_id: str, payload: dict) -> dict:
+        self.updated_views.append((view_id, payload))
+        return {"id": view_id, **payload}
+
+    def create_view(self, payload: dict) -> dict:
+        view = {"id": f"view_{len(self.created_views) + 1}", **payload}
+        self.created_views.append(view)
+        return view
 
 
 def test_bootstrap_creates_databases_with_relations() -> None:
@@ -118,6 +140,57 @@ def test_bootstrap_renames_legacy_english_database_titles() -> None:
     assert ids.applications == "existing_apps_ds"
     assert client.updated_data_source_titles[0] == ("existing_apps_ds", "投递记录")
     assert client.updated_database_titles[0] == ("existing_apps_db", "投递记录")
+
+
+def test_bootstrap_configures_slim_default_views_and_full_field_views() -> None:
+    client = FakeNotionClient()
+    client.views_by_database["apps_ds_database"] = [
+        {"id": "apps_default_view", "name": "Default view", "type": "table"}
+    ]
+    bootstrapper = NotionBootstrapper(client)
+
+    bootstrapper.configure_readable_views(
+        database_ids=type(
+            "Ids",
+            (),
+            {
+                "applications": "apps_ds",
+                "activity": "activity_ds",
+                "interviews": "interviews_ds",
+                "review_tasks": "review_ds",
+            },
+        )()
+    )
+
+    updated_view_id, updated_payload = client.updated_views[0]
+    assert updated_view_id == "apps_default_view"
+    assert updated_payload["name"] == "总览"
+    visible_properties = visible_property_names(updated_payload["configuration"])
+    assert visible_properties == [
+        "公司",
+        "岗位",
+        "当前阶段",
+        "优先级",
+        "投递日期",
+        "截止日期",
+        "下一步",
+    ]
+    created_names = [view["name"] for view in client.created_views]
+    assert "完整字段" in created_names
+    assert "待跟进" in created_names
+    assert "面试安排" in created_names
+    assert "复习看板" in created_names
+    created_full_view = next(view for view in client.created_views if view["name"] == "完整字段")
+    assert created_full_view["database_id"] == "apps_ds_database"
+    assert "parent" not in created_full_view
+
+
+def visible_property_names(configuration: dict) -> list[str]:
+    return [
+        item["property_id"]
+        for item in configuration["properties"]
+        if item.get("visible")
+    ]
 
 
 def test_notion_repository_save_application_returns_notion_page_id() -> None:
@@ -230,8 +303,17 @@ class RecordingHttpClient:
     def __exit__(self, exc_type, exc, traceback) -> None:
         return None
 
-    def request(self, method: str, url: str, headers: dict, json: dict | None = None):
-        self.calls.append({"method": method, "url": url, "headers": headers, "json": json})
+    def request(
+        self,
+        method: str,
+        url: str,
+        headers: dict,
+        json: dict | None = None,
+        params: dict | None = None,
+    ):
+        self.calls.append(
+            {"method": method, "url": url, "headers": headers, "json": json, "params": params}
+        )
         return FakeHttpResponse(self.responses.pop(0))
 
 
@@ -287,6 +369,40 @@ def test_notion_client_updates_data_source_and_database_titles(monkeypatch) -> N
     assert calls[1]["method"] == "PATCH"
     assert calls[1]["url"].endswith("/databases/db_1")
     assert calls[1]["json"]["title"][0]["text"]["content"] == "投递记录"
+
+
+def test_notion_client_manages_views(monkeypatch) -> None:
+    calls: list[dict] = []
+    responses = [
+        {"results": [{"id": "view_1"}], "has_more": False},
+        {"id": "view_1", "name": "Default view", "type": "table"},
+        {"id": "view_1"},
+        {"id": "view_2"},
+    ]
+
+    def client_factory(**kwargs):
+        return RecordingHttpClient(calls, responses)
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", client_factory)
+    client = NotionClient("fake-token")
+
+    listed = client.list_views("db_1")
+    view = client.retrieve_view("view_1")
+    client.update_view("view_1", {"name": "总览"})
+    client.create_view({"name": "完整字段", "database_id": "db_1"})
+
+    assert listed == [{"id": "view_1"}]
+    assert view["name"] == "Default view"
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["url"].endswith("/views")
+    assert calls[0]["params"] == {"database_id": "db_1"}
+    assert calls[1]["url"].endswith("/views/view_1")
+    assert calls[2]["method"] == "PATCH"
+    assert calls[2]["json"] == {"name": "总览"}
+    assert calls[3]["method"] == "POST"
+    assert calls[3]["url"].endswith("/views")
 
 
 def test_find_database_by_title_filters_matches_to_parent_page(monkeypatch) -> None:

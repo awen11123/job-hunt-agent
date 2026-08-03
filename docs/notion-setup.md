@@ -32,3 +32,14 @@ The script writes the generated data source IDs back to local user environment v
 The `*_DB_ID` names are kept for compatibility, but with the current Notion API they
 store data source IDs. Do not paste tokens, page IDs, real job-search records, or Notion
 URLs into chat logs or commit them to GitHub.
+
+The bootstrap script also keeps the default Notion screens readable by configuring slim
+views instead of deleting fields:
+
+- `投递记录`: `总览`, `待跟进`, `完整字段`
+- `流程日志`: `总览`, `完整字段`
+- `面试记录`: `总览`, `面试安排`, `完整字段`
+- `复习任务`: `总览`, `复习看板`, `完整字段`
+
+`总览` and the work views show only day-to-day columns. `完整字段` keeps the full schema
+available for debugging, model analysis, and future automation.

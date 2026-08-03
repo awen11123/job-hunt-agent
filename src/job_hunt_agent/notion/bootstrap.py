@@ -18,11 +18,54 @@ class DatabaseTitle:
     legacy: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ViewSpec:
+    name: str
+    visible_properties: tuple[str, ...] | None
+    reuse_default: bool = False
+
+
 DATABASE_TITLES = {
     "applications": DatabaseTitle("投递记录", ("Applications",)),
     "activity": DatabaseTitle("流程日志", ("Activity Log",)),
     "interviews": DatabaseTitle("面试记录", ("Interviews",)),
     "review_tasks": DatabaseTitle("复习任务", ("Review Tasks",)),
+}
+
+
+APPLICATION_OVERVIEW_FIELDS = (
+    "公司",
+    "岗位",
+    "当前阶段",
+    "优先级",
+    "投递日期",
+    "截止日期",
+    "下一步",
+)
+ACTIVITY_OVERVIEW_FIELDS = ("事件", "事件时间", "关联投递", "事件类型", "新状态")
+INTERVIEW_OVERVIEW_FIELDS = ("面试", "关联投递", "时间", "形式", "结果", "分析状态", "自评分")
+REVIEW_TASK_OVERVIEW_FIELDS = ("任务", "分类", "掌握程度", "出现次数", "截止日期", "完成状态")
+
+VIEW_SPECS = {
+    "applications": (
+        ViewSpec("总览", APPLICATION_OVERVIEW_FIELDS, reuse_default=True),
+        ViewSpec("待跟进", APPLICATION_OVERVIEW_FIELDS),
+        ViewSpec("完整字段", None),
+    ),
+    "activity": (
+        ViewSpec("总览", ACTIVITY_OVERVIEW_FIELDS, reuse_default=True),
+        ViewSpec("完整字段", None),
+    ),
+    "interviews": (
+        ViewSpec("总览", INTERVIEW_OVERVIEW_FIELDS, reuse_default=True),
+        ViewSpec("面试安排", INTERVIEW_OVERVIEW_FIELDS),
+        ViewSpec("完整字段", None),
+    ),
+    "review_tasks": (
+        ViewSpec("总览", REVIEW_TASK_OVERVIEW_FIELDS, reuse_default=True),
+        ViewSpec("复习看板", REVIEW_TASK_OVERVIEW_FIELDS),
+        ViewSpec("完整字段", None),
+    ),
 }
 
 
@@ -51,7 +94,9 @@ class NotionBootstrapper:
             DATABASE_TITLES["review_tasks"],
             review_task_properties(interviews),
         )
-        return BootstrappedDatabases(applications, activity, interviews, review_tasks)
+        database_ids = BootstrappedDatabases(applications, activity, interviews, review_tasks)
+        self.configure_readable_views(database_ids)
+        return database_ids
 
     def rename_configured_databases(self, database_ids: BootstrappedDatabases) -> None:
         for data_source_id, title in [
@@ -62,6 +107,24 @@ class NotionBootstrapper:
         ]:
             data_source = self.client.retrieve_data_source(data_source_id)
             self._rename_data_source(data_source, title)
+
+    def configure_readable_views(self, database_ids: BootstrappedDatabases) -> None:
+        plans = [
+            ("applications", database_ids.applications, tuple(application_properties().keys())),
+            ("activity", database_ids.activity, tuple(activity_properties(database_ids.applications).keys())),
+            ("interviews", database_ids.interviews, tuple(interview_properties(database_ids.applications).keys())),
+            (
+                "review_tasks",
+                database_ids.review_tasks,
+                tuple(review_task_properties(database_ids.interviews).keys()),
+            ),
+        ]
+        for key, data_source_id, properties in plans:
+            self._configure_data_source_views(
+                data_source_id=data_source_id,
+                properties=properties,
+                specs=VIEW_SPECS[key],
+            )
 
     def _get_or_create_database(
         self,
@@ -88,6 +151,48 @@ class NotionBootstrapper:
         if database_id:
             self.client.update_database_title(database_id, title)
 
+    def _configure_data_source_views(
+        self,
+        data_source_id: str,
+        properties: tuple[str, ...],
+        specs: tuple[ViewSpec, ...],
+    ) -> None:
+        data_source = self.client.retrieve_data_source(data_source_id)
+        database_id = parent_database_id(data_source)
+        if database_id is None:
+            return
+        existing_views = [self.client.retrieve_view(view["id"]) for view in self.client.list_views(database_id)]
+        for spec in specs:
+            self._ensure_view(database_id, data_source_id, properties, existing_views, spec)
+
+    def _ensure_view(
+        self,
+        database_id: str,
+        data_source_id: str,
+        properties: tuple[str, ...],
+        existing_views: list[dict],
+        spec: ViewSpec,
+    ) -> None:
+        configuration = table_view_configuration(properties, spec.visible_properties)
+        target_view = find_view(existing_views, spec.name)
+        if target_view is not None:
+            self.client.update_view(target_view["id"], {"name": spec.name, "configuration": configuration})
+            return
+        if spec.reuse_default:
+            default_view = find_view(existing_views, "Default view")
+            if default_view is not None:
+                self.client.update_view(default_view["id"], {"name": spec.name, "configuration": configuration})
+                return
+        self.client.create_view(
+            {
+                "database_id": database_id,
+                "name": spec.name,
+                "type": "table",
+                "data_source_id": data_source_id,
+                "configuration": configuration,
+            }
+        )
+
 
 def first_data_source_id(database: dict) -> str:
     data_sources = database.get("data_sources") or []
@@ -101,6 +206,32 @@ def parent_database_id(data_source: dict) -> str | None:
     if parent.get("type") == "database_id":
         return parent.get("database_id")
     return None
+
+
+def find_view(views: list[dict], name: str) -> dict | None:
+    for view in views:
+        if view.get("name") == name:
+            return view
+    return None
+
+
+def table_view_configuration(
+    properties: tuple[str, ...],
+    visible_properties: tuple[str, ...] | None,
+) -> dict:
+    visible = set(visible_properties or properties)
+    ordered_properties = list(visible_properties or properties)
+    ordered_properties.extend(property_name for property_name in properties if property_name not in visible)
+    return {
+        "type": "table",
+        "properties": [
+            {
+                "property_id": property_name,
+                "visible": property_name in visible,
+            }
+            for property_name in ordered_properties
+        ],
+    }
 
 
 def application_properties() -> dict:
