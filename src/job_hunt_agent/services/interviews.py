@@ -44,7 +44,7 @@ class InterviewService:
             created_at=now,
             updated_at=now,
         )
-        self.repository.save_interview(interview)
+        interview = self.repository.save_interview(interview)
         event = ActivityEvent(
             id=self.repository.next_id("evt"),
             application_id=draft.application_id,
@@ -54,7 +54,7 @@ class InterviewService:
             note=interview.id,
             sync_status=SyncStatus.COMPLETED,
         )
-        self.repository.save_activity_event(event)
+        event = self.repository.save_activity_event(event)
         return ToolReceipt(
             status="created",
             message=f"Recorded interview round {interview.round_name}.",
@@ -94,7 +94,7 @@ class InterviewService:
                     "updated_at": now,
                 }
             )
-            self.repository.save_interview(failed)
+            failed = self.repository.save_interview(failed)
             event = ActivityEvent(
                 id=self.repository.next_id("evt"),
                 application_id=interview.application_id,
@@ -104,7 +104,7 @@ class InterviewService:
                 note=interview.id,
                 sync_status=SyncStatus.FAILED,
             )
-            self.repository.save_activity_event(event)
+            event = self.repository.save_activity_event(event)
             return ToolReceipt(
                 status="failed",
                 message="Interview analysis failed.",
@@ -122,7 +122,7 @@ class InterviewService:
                 "updated_at": now,
             }
         )
-        self.repository.save_interview(updated)
+        updated = self.repository.save_interview(updated)
         for candidate in analysis.review_tasks:
             existing = self.repository.find_review_task_by_topic(candidate.category, candidate.topic)
             if existing is not None:
@@ -136,7 +136,7 @@ class InterviewService:
                         "updated_at": now,
                     }
                 )
-                self.repository.save_review_task(task)
+                task = self.repository.save_review_task(task)
             else:
                 task = ReviewTaskRecord(
                     **candidate.model_dump(),
@@ -145,7 +145,7 @@ class InterviewService:
                     created_at=now,
                     updated_at=now,
                 )
-                self.repository.save_review_task(task)
+                task = self.repository.save_review_task(task)
         event = ActivityEvent(
             id=self.repository.next_id("evt"),
             application_id=interview.application_id,
@@ -155,7 +155,7 @@ class InterviewService:
             note=interview.id,
             sync_status=SyncStatus.COMPLETED,
         )
-        self.repository.save_activity_event(event)
+        event = self.repository.save_activity_event(event)
         return ToolReceipt(
             status="updated",
             message="Interview analysis saved with pending review tasks.",

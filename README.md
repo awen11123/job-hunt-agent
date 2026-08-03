@@ -14,6 +14,13 @@ rtk python -m pytest -q
 
 Configure credentials through environment variables. Never commit `.env`.
 
+After sharing a private Notion parent page with your integration, bootstrap the Notion
+tables locally:
+
+```bash
+rtk python scripts/notion_bootstrap.py
+```
+
 ## Privacy Boundary
 
 - Notion is the source of truth for real job-search data.
@@ -22,9 +29,9 @@ Configure credentials through environment variables. Never commit `.env`.
 
 ## Notion Setup
 
-See `docs/notion-setup.md`. The first local milestone can run entirely on the in-memory
-repository used by tests. Real Notion writes are enabled only after private database IDs
-and token are configured locally.
+See `docs/notion-setup.md`. The bootstrap script creates the private Notion data sources
+and stores their IDs in local user environment variables. Real Notion writes are enabled
+only after the token and generated IDs are configured locally.
 
 ## Verification
 

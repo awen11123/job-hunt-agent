@@ -1,4 +1,5 @@
 from job_hunt_agent.config import Settings
+import job_hunt_agent.config as config_module
 from job_hunt_agent.matching import application_key, normalize_text
 from job_hunt_agent.privacy import scan_text_for_private_leaks
 
@@ -48,3 +49,16 @@ def test_settings_reads_env_without_requiring_real_secrets(monkeypatch) -> None:
     assert settings.default_recruiting_season == "2026-autumn"
     assert settings.deepseek_model == "deepseek-chat"
     assert settings.notion_token is None
+
+
+def test_env_value_falls_back_to_powershell_user_environment(monkeypatch) -> None:
+    monkeypatch.delenv("CODEX_TEST_NOTION_TOKEN", raising=False)
+    monkeypatch.setattr(config_module.os, "name", "nt")
+    monkeypatch.setattr(config_module, "winreg_user_environment_value", lambda name: None)
+    monkeypatch.setattr(
+        config_module,
+        "powershell_user_environment_value",
+        lambda name: "from-user-target" if name == "CODEX_TEST_NOTION_TOKEN" else None,
+    )
+
+    assert config_module.env_value("CODEX_TEST_NOTION_TOKEN") == "from-user-target"

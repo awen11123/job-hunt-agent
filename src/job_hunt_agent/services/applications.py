@@ -48,7 +48,7 @@ class ApplicationService:
             created_at=now,
             updated_at=now,
         )
-        self.repository.save_application(record)
+        record = self.repository.save_application(record)
         event = ActivityEvent(
             id=self.repository.next_id("evt"),
             application_id=record.id,
@@ -58,7 +58,7 @@ class ApplicationService:
             to_stage=record.current_stage,
             sync_status=SyncStatus.COMPLETED,
         )
-        self.repository.save_activity_event(event)
+        event = self.repository.save_activity_event(event)
         return ToolReceipt(
             status="created",
             message=f"Created application for {record.company} - {record.role}.",
@@ -105,12 +105,12 @@ class ApplicationService:
             note=note,
             sync_status=SyncStatus.PENDING,
         )
-        self.repository.save_activity_event(pending_event)
+        pending_event = self.repository.save_activity_event(pending_event)
         record.current_stage = to_stage
         record.updated_at = now
-        self.repository.save_application(record)
+        record = self.repository.save_application(record)
         completed_event = pending_event.model_copy(update={"sync_status": SyncStatus.COMPLETED})
-        self.repository.save_activity_event(completed_event)
+        completed_event = self.repository.save_activity_event(completed_event)
         return ToolReceipt(
             status="updated",
             message=f"Updated application stage to {to_stage.value}.",
