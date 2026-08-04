@@ -153,6 +153,7 @@ def test_generate_weekly_review_summarizes_pipeline_and_review_tasks() -> None:
 def test_mcp_tool_names_match_design() -> None:
     assert TOOL_NAMES == [
         "record_application",
+        "record_application_text",
         "update_application_stage",
         "record_interview",
         "analyze_interview",

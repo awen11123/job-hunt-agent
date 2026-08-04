@@ -6,9 +6,15 @@ The project is designed for AI Agent and LLM application engineer recruiting. Pu
 schemas, prompts, tests, and synthetic examples live in GitHub. Real applications,
 interview notes, contacts, Notion page URLs, and API keys stay outside the repository.
 
-Core tools record applications, update stages, save interview notes, analyze interviews,
-list follow-ups across applications/interviews/review tasks, and generate daily or weekly
-reviews.
+Core tools record structured applications or natural-language application notes, update
+stages, save interview notes, analyze interviews, list follow-ups across applications,
+interviews and review tasks, and generate daily or weekly reviews.
+
+Example natural-language entry:
+
+```text
+今天投了 DeepSeek 的 LLM 应用工程师，内推，简历 v3，北京，AI Agent方向
+```
 
 ## Local Usage
 

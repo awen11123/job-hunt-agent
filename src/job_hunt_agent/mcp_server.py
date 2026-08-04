@@ -1,8 +1,9 @@
 from datetime import date, timedelta
 from uuid import uuid4
 
-from job_hunt_agent.domain.models import ApplicationDraft, InterviewDraft
+from job_hunt_agent.domain.models import ApplicationDraft, InterviewDraft, ToolReceipt
 from job_hunt_agent.domain.statuses import RecruitingStage
+from job_hunt_agent.nlu.application_text import parse_application_text
 from job_hunt_agent.services.applications import ApplicationService
 from job_hunt_agent.services.interviews import InterviewService
 from job_hunt_agent.services.reporting import ReportingService
@@ -10,6 +11,7 @@ from job_hunt_agent.services.reporting import ReportingService
 
 TOOL_NAMES = [
     "record_application",
+    "record_application_text",
     "update_application_stage",
     "record_interview",
     "analyze_interview",
@@ -28,10 +30,12 @@ class JobHuntToolHandlers:
         application_service: ApplicationService,
         interview_service: InterviewService,
         reporting_service: ReportingService,
+        today_provider=date.today,
     ) -> None:
         self.application_service = application_service
         self.interview_service = interview_service
         self.reporting_service = reporting_service
+        self.today_provider = today_provider
 
     def operation_id(self, provided: str | None, prefix: str) -> str:
         return provided or new_operation_id(prefix)
@@ -42,6 +46,25 @@ class JobHuntToolHandlers:
             draft,
             self.operation_id(operation_id, "record-application"),
         )
+        return receipt.model_dump(mode="json")
+
+    def record_application_text(self, text: str, operation_id: str | None = None) -> dict:
+        operation = self.operation_id(operation_id, "record-application-text")
+        try:
+            draft = parse_application_text(
+                text,
+                today=self.today_provider(),
+                default_season=self.application_service.default_season,
+            )
+        except ValueError as exc:
+            return ToolReceipt(
+                status="failed",
+                message="Could not parse application text.",
+                operation_id=operation,
+                pending_fields=["company", "role"],
+                warnings=[str(exc)],
+            ).model_dump(mode="json")
+        receipt = self.application_service.record_application(draft, operation)
         return receipt.model_dump(mode="json")
 
     def update_application_stage(
@@ -103,6 +126,10 @@ def build_mcp_server(
     @mcp.tool
     def record_application(payload: dict, operation_id: str | None = None) -> dict:
         return handlers.record_application(payload, operation_id)
+
+    @mcp.tool
+    def record_application_text(text: str, operation_id: str | None = None) -> dict:
+        return handlers.record_application_text(text, operation_id)
 
     @mcp.tool
     def update_application_stage(
