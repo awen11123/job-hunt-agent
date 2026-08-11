@@ -1,0 +1,2 @@
+{"intent":"record_application","text":"I applied to ExampleAI for LLM Application Engineer through campus portal.","expected_tool":"record_application"}
+{"intent":"record_interview","text":"ExampleAI first round asked about RAG chunking and Hybrid Search. I did not record my answer.","expected_tool":"record_interview"}

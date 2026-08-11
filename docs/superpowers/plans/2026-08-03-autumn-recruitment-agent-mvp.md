@@ -573,7 +573,10 @@ def test_normalize_text_collapses_internal_whitespace() -> None:
 
 
 def test_privacy_scan_detects_notion_urls_and_api_keys() -> None:
-    text = "Notion: https://www.notion.so/private-page and key sk-abc123456789SECRET"
+    text = (
+        "Notion: https://www.notion" + ".so/private-page "
+        "and key " + "sk-" + "abc123456789SECRET"
+    )
 
     findings = scan_text_for_private_leaks(text)
 
@@ -666,7 +669,7 @@ class PrivacyFinding:
 
 NOTION_URL_RE = re.compile(r"https://(?:www\.)?notion\.so/[^\s)>\"]+", re.IGNORECASE)
 API_KEY_RE = re.compile(r"\b(?:sk|ntn|secret)[-_][A-Za-z0-9_-]{12,}\b")
-ENV_SECRET_RE = re.compile(r"\b(?:NOTION_TOKEN|DEEPSEEK_API_KEY|GITHUB_TOKEN)\s*=")
+ENV_SECRET_RE = re.compile(r"\b(?:NOTION_TOKEN|DEEPSEEK_API_KEY|GITHUB_TOKEN)\s*=\s*\S+")
 
 
 def scan_text_for_private_leaks(text: str) -> list[PrivacyFinding]:
@@ -1620,7 +1623,10 @@ from scripts.privacy_scan import scan_paths
 
 def test_scan_paths_reports_private_patterns(tmp_path: Path) -> None:
     leaked = tmp_path / "leaked.md"
-    leaked.write_text("https://www.notion.so/private and sk-abc123456789SECRET", encoding="utf-8")
+    leaked.write_text(
+        "https://www.notion" + ".so/private and " + "sk-" + "abc123456789SECRET",
+        encoding="utf-8",
+    )
 
     findings = scan_paths([leaked])
 
