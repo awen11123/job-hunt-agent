@@ -12,6 +12,8 @@ class FakeNotionClient:
     def __init__(self) -> None:
         self.created_databases: list[dict] = []
         self.created_pages: list[dict] = []
+        self.queried_pages: list[dict] = []
+        self.queried_pages_by_database: dict[str, list[dict]] = {}
         self.updated_pages: list[tuple[str, dict]] = []
         self.updated_data_source_titles: list[tuple[str, str]] = []
         self.updated_database_titles: list[tuple[str, str]] = []
@@ -19,6 +21,10 @@ class FakeNotionClient:
         self.created_views: list[dict] = []
         self.queried_databases: list[tuple[str, dict | None]] = []
         self.created_child_pages: list[dict] = []
+        self.updated_child_page_titles: list[tuple[str, str]] = []
+        self.children_by_block: dict[str, list[dict]] = {}
+        self.appended_children: list[tuple[str, list[dict]]] = []
+        self.archived_blocks: list[str] = []
         self.search_results: dict[str, dict] = {}
         self.search_page_results: dict[str, dict] = {}
         self.views_by_database: dict[str, list[dict]] = {}
@@ -45,9 +51,15 @@ class FakeNotionClient:
         self.updated_pages.append((page_id, properties))
         return {"id": page_id, "properties": properties}
 
+    def update_child_page_title(self, page_id: str, title: str) -> dict:
+        self.updated_child_page_titles.append((page_id, title))
+        return {"id": page_id}
+
     def query_database(self, database_id: str, filter_payload: dict | None = None) -> list[dict]:
         self.queried_databases.append((database_id, filter_payload))
-        return []
+        if database_id in self.queried_pages_by_database:
+            return self.queried_pages_by_database[database_id]
+        return self.queried_pages
 
     def create_child_page(self, parent_page_id: str, title: str) -> dict:
         page_id = f"child_page_{len(self.created_child_pages) + 1}"
@@ -132,6 +144,18 @@ class FakeNotionClient:
                 "configuration": configuration,
             }
         )
+
+    def list_block_children(self, block_id: str) -> list[dict]:
+        return self.children_by_block.get(block_id, [])
+
+    def append_block_children(self, block_id: str, children: list[dict]) -> dict:
+        self.appended_children.append((block_id, children))
+        self.children_by_block.setdefault(block_id, []).extend(children)
+        return {"results": children}
+
+    def archive_block(self, block_id: str) -> dict:
+        self.archived_blocks.append(block_id)
+        return {"id": block_id, "archived": True}
 
 
 def test_bootstrap_creates_databases_with_relations() -> None:
@@ -326,6 +350,84 @@ def test_bootstrap_reuses_existing_overview_page_and_linked_view() -> None:
     ]
 
 
+def test_bootstrap_refreshes_text_first_overview_blocks() -> None:
+    client = FakeNotionClient()
+    client.children_by_block["overview_page"] = [
+        {
+            "id": "old_marker",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"plain_text": "JOB_HUNT_AGENT_TEXT_OVERVIEW_START"}],
+            },
+        },
+        {
+            "id": "old_content",
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"plain_text": "旧内容"}]},
+        },
+        {
+            "id": "old_end",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"plain_text": "JOB_HUNT_AGENT_TEXT_OVERVIEW_END"}],
+            },
+        },
+        {
+            "id": "database_block",
+            "type": "child_database",
+            "child_database": {"title": "Untitled"},
+        },
+    ]
+    bootstrapper = NotionBootstrapper(client)
+
+    bootstrapper.refresh_text_overview(
+        overview_page_id="overview_page",
+        overview_text="# 秋招总览｜2026-08-13\n\n## 当前投递\n- 示例科技｜智能 Agent 系统开发工程师",
+    )
+
+    assert client.archived_blocks == ["old_marker", "old_content", "old_end"]
+    block_id, children = client.appended_children[0]
+    assert block_id == "overview_page"
+    assert children[0]["paragraph"]["rich_text"][0]["text"]["content"] == (
+        "JOB_HUNT_AGENT_TEXT_OVERVIEW_START"
+    )
+    assert children[1]["type"] == "heading_1"
+    assert children[1]["heading_1"]["rich_text"][0]["text"]["content"] == "秋招总览｜2026-08-13"
+    assert children[3]["type"] == "bulleted_list_item"
+    assert "示例科技" in children[3]["bulleted_list_item"]["rich_text"][0]["text"]["content"]
+    assert children[-1]["paragraph"]["rich_text"][0]["text"]["content"] == (
+        "JOB_HUNT_AGENT_TEXT_OVERVIEW_END"
+    )
+    assert "database_block" not in client.archived_blocks
+
+
+def test_bootstrap_can_replace_table_first_overview_with_text_first_page() -> None:
+    client = FakeNotionClient()
+    client.search_page_results["秋招总览"] = {
+        "id": "old_table_overview",
+        "parent_page_id": "parent_1",
+        "title": "秋招总览",
+    }
+    client.children_by_block["old_table_overview"] = [
+        {
+            "id": "database_block",
+            "type": "child_database",
+            "child_database": {"title": "Untitled"},
+        }
+    ]
+    bootstrapper = NotionBootstrapper(client)
+
+    page_id = bootstrapper.ensure_text_first_overview_page("parent_1")
+
+    assert client.updated_child_page_titles == [
+        ("old_table_overview", "秋招总览（表格备份）")
+    ]
+    assert page_id == "child_page_1"
+    assert client.created_child_pages == [
+        {"id": "child_page_1", "parent_page_id": "parent_1", "title": "秋招总览"}
+    ]
+
+
 def visible_property_names(configuration: dict) -> list[str]:
     return [
         item["property_id"]
@@ -363,6 +465,102 @@ def test_notion_repository_save_application_returns_notion_page_id() -> None:
     properties = client.created_pages[0]["properties"]
     assert properties["公司"]["title"][0]["text"]["content"] == "DeepSeek"
     assert properties["岗位"]["rich_text"][0]["text"]["content"] == "LLM Application Engineer"
+
+
+def test_application_from_notion_page_preserves_overview_fields() -> None:
+    client = FakeNotionClient()
+    client.queried_pages = [
+        {
+            "id": "page_app",
+            "properties": {
+                "公司": {"title": [{"plain_text": "示例科技"}]},
+                "岗位": {"rich_text": [{"plain_text": "智能 Agent 系统开发工程师"}]},
+                "秋招批次": {"select": {"name": "2026-autumn"}},
+                "方向": {"select": {"name": "AI Agent / LLM 应用"}},
+                "地点": {"rich_text": [{"plain_text": "远程面试"}]},
+                "投递渠道": {"select": {"name": "示例科技校招官网"}},
+                "简历版本": {"rich_text": [{"plain_text": "resume-v3.pdf"}]},
+                "投递日期": {"date": {"start": "2026-08-13"}},
+                "当前阶段": {"select": {"name": "applied"}},
+                "优先级": {"select": {"name": "high"}},
+                "下一步": {"rich_text": [{"plain_text": "准备 Agent 架构。"}]},
+                "最终结果": {"select": {"name": "ongoing"}},
+                "是否待补充": {"checkbox": False},
+                "归档状态": {"checkbox": False},
+            },
+        }
+    ]
+    repo = NotionJobHuntRepository(
+        token="fake-token",
+        database_ids=NotionDatabaseIds(
+            applications="apps_db",
+            activity="activity_db",
+            interviews="interviews_db",
+            review_tasks="review_tasks_db",
+        ),
+        client=client,
+    )
+
+    record = repo.find_application_by_key("示例科技", "智能 Agent 系统开发工程师", "2026-autumn")
+
+    assert record is not None
+    assert record.resume_version == "resume-v3.pdf"
+    assert record.applied_date.isoformat() == "2026-08-13"
+    assert record.next_step == "准备 Agent 架构。"
+
+
+def test_notion_repository_loads_all_overview_data() -> None:
+    client = FakeNotionClient()
+    client.queried_pages_by_database["apps_db"] = [
+        {
+            "id": "page_app",
+            "properties": {
+                "公司": {"title": [{"plain_text": "示例旅行"}]},
+                "岗位": {"rich_text": [{"plain_text": "AI全栈工程师（上海）"}]},
+                "秋招批次": {"select": {"name": "2026-autumn"}},
+                "当前阶段": {"select": {"name": "applied"}},
+                "优先级": {"select": {"name": "high"}},
+                "下一步": {"rich_text": [{"plain_text": "补充简历版本。"}]},
+                "最终结果": {"select": {"name": "ongoing"}},
+                "是否待补充": {"checkbox": True},
+                "归档状态": {"checkbox": False},
+            },
+        }
+    ]
+    client.queried_pages_by_database["activity_db"] = [
+        {
+            "id": "page_event",
+            "properties": {
+                "关联投递": {"relation": [{"id": "page_app"}]},
+                "操作唯一 ID": {"rich_text": [{"plain_text": "op-example-travel"}]},
+                "事件类型": {"select": {"name": "application_created"}},
+                "同步状态": {"select": {"name": "completed"}},
+            },
+        }
+    ]
+    client.queried_pages_by_database["interviews_db"] = []
+    client.queried_pages_by_database["review_tasks_db"] = []
+    repo = NotionJobHuntRepository(
+        token="fake-token",
+        database_ids=NotionDatabaseIds(
+            applications="apps_db",
+            activity="activity_db",
+            interviews="interviews_db",
+            review_tasks="review_tasks_db",
+        ),
+        client=client,
+    )
+
+    repo.load_all()
+
+    assert list(repo.applications) == ["page_app"]
+    assert repo.activity_events[0].operation_id == "op-example-travel"
+    assert client.queried_databases == [
+        ("apps_db", None),
+        ("activity_db", None),
+        ("interviews_db", None),
+        ("review_tasks_db", None),
+    ]
 
 
 def test_application_service_uses_saved_notion_application_id_for_activity_relation() -> None:
@@ -583,6 +781,40 @@ def test_notion_client_creates_child_page_and_linked_database_view(monkeypatch) 
     }
     assert calls[1]["json"]["data_source_id"] == "apps_ds"
     assert calls[2]["params"] == {"data_source_id": "apps_ds"}
+
+
+def test_notion_client_manages_block_children(monkeypatch) -> None:
+    calls: list[dict] = []
+    responses = [
+        {"results": [{"id": "block_1"}], "has_more": False},
+        {"results": [{"id": "new_block"}]},
+        {"id": "block_1", "archived": True},
+    ]
+
+    def client_factory(**kwargs):
+        return RecordingHttpClient(calls, responses)
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", client_factory)
+    client = NotionClient("fake-token")
+
+    children = client.list_block_children("page_1")
+    client.append_block_children(
+        "page_1",
+        [{"type": "paragraph", "paragraph": {"rich_text": []}}],
+    )
+    client.archive_block("block_1")
+
+    assert children == [{"id": "block_1"}]
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["url"].endswith("/blocks/page_1/children")
+    assert calls[1]["method"] == "PATCH"
+    assert calls[1]["url"].endswith("/blocks/page_1/children")
+    assert calls[1]["json"]["children"][0]["type"] == "paragraph"
+    assert calls[2]["method"] == "PATCH"
+    assert calls[2]["url"].endswith("/blocks/block_1")
+    assert calls[2]["json"] == {"archived": True}
 
 
 def test_find_database_by_title_filters_matches_to_parent_page(monkeypatch) -> None:

@@ -56,8 +56,30 @@ class NotionClient:
     def update_page(self, page_id: str, properties: dict[str, Any]) -> dict:
         return self._request("PATCH", f"/pages/{page_id}", json={"properties": properties})
 
+    def update_child_page_title(self, page_id: str, title: str) -> dict:
+        return self.update_page(page_id, {"title": title_payload(title)})
+
     def retrieve_page(self, page_id: str) -> dict:
         return self._request("GET", f"/pages/{page_id}")
+
+    def list_block_children(self, block_id: str) -> list[dict]:
+        results: list[dict] = []
+        cursor: str | None = None
+        while True:
+            params: dict[str, Any] = {}
+            if cursor is not None:
+                params["start_cursor"] = cursor
+            response = self._request("GET", f"/blocks/{block_id}/children", params=params)
+            results.extend(response.get("results", []))
+            if not response.get("has_more"):
+                return results
+            cursor = response.get("next_cursor")
+
+    def append_block_children(self, block_id: str, children: list[dict[str, Any]]) -> dict:
+        return self._request("PATCH", f"/blocks/{block_id}/children", json={"children": children})
+
+    def archive_block(self, block_id: str) -> dict:
+        return self._request("PATCH", f"/blocks/{block_id}", json={"archived": True})
 
     def retrieve_data_source(self, data_source_id: str) -> dict:
         return self._request("GET", f"/data_sources/{data_source_id}")

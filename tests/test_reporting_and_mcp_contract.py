@@ -150,6 +150,48 @@ def test_generate_weekly_review_summarizes_pipeline_and_review_tasks() -> None:
     assert "Open review tasks: 1" in review
 
 
+def test_generate_text_overview_prioritizes_readable_current_state() -> None:
+    repo = InMemoryJobHuntRepository()
+    app_service = ApplicationService(repo, default_season="2026-autumn")
+    app_service.record_application(
+        ApplicationDraft(
+            company="示例科技",
+            role="智能 Agent 系统开发工程师",
+            direction="AI Agent / LLM 应用",
+            location="远程面试",
+            channel="示例科技校招官网",
+            resume_version="resume-v3.pdf",
+            applied_date=date(2026, 8, 13),
+            next_step="准备 Agent 架构、Planning、Memory 和 Tool Use。",
+        ),
+        operation_id="op-example-tech",
+    )
+    app_service.record_application(
+        ApplicationDraft(
+            company="示例旅行",
+            role="AI全栈工程师（上海）",
+            direction="AI Agent / LLM 应用 / AI 全栈",
+            location="上海",
+            channel="校招正式技术类",
+            applied_date=date(2026, 8, 13),
+            next_step="补充简历版本并准备低成本实验评测。",
+        ),
+        operation_id="op-example-travel",
+    )
+    reporting = ReportingService(repo)
+
+    overview = reporting.generate_text_overview(today=date(2026, 8, 13))
+
+    assert "# 秋招总览｜2026-08-13" in overview
+    assert "## 当前投递" in overview
+    assert "- 示例科技｜智能 Agent 系统开发工程师｜已投递｜中优先级｜准备 Agent 架构、Planning、Memory 和 Tool Use。" in overview
+    assert "- 示例旅行｜AI全栈工程师（上海）｜已投递｜中优先级｜补充简历版本并准备低成本实验评测。" in overview
+    assert "## 待补充" in overview
+    assert "- 示例旅行｜AI全栈工程师（上海）：简历版本" in overview
+    assert "## 最近流程" in overview
+    assert "新增投递：示例旅行 - AI全栈工程师（上海）" in overview
+
+
 def test_mcp_tool_names_match_design() -> None:
     assert TOOL_NAMES == [
         "record_application",
