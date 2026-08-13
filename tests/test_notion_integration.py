@@ -18,8 +18,12 @@ class FakeNotionClient:
         self.updated_views: list[tuple[str, dict]] = []
         self.created_views: list[dict] = []
         self.queried_databases: list[tuple[str, dict | None]] = []
+        self.created_child_pages: list[dict] = []
         self.search_results: dict[str, dict] = {}
+        self.search_page_results: dict[str, dict] = {}
         self.views_by_database: dict[str, list[dict]] = {}
+        self.views_by_data_source: dict[str, list[dict]] = {}
+        self.databases_by_id: dict[str, dict] = {}
 
     def create_database(self, parent_page_id: str, title: str, properties: dict) -> dict:
         sequence = len(self.created_databases) + 1
@@ -45,6 +49,20 @@ class FakeNotionClient:
         self.queried_databases.append((database_id, filter_payload))
         return []
 
+    def create_child_page(self, parent_page_id: str, title: str) -> dict:
+        page_id = f"child_page_{len(self.created_child_pages) + 1}"
+        page = {"id": page_id, "parent_page_id": parent_page_id, "title": title}
+        self.created_child_pages.append(page)
+        return page
+
+    def find_page_by_title(self, title: str, parent_page_id: str | None = None) -> dict | None:
+        page = self.search_page_results.get(title)
+        if page is None:
+            return None
+        if parent_page_id is None or page.get("parent_page_id") == parent_page_id:
+            return page
+        return None
+
     def retrieve_page(self, page_id: str) -> dict:
         return {"id": page_id, "properties": {}}
 
@@ -65,11 +83,23 @@ class FakeNotionClient:
         self.updated_database_titles.append((database_id, title))
         return {"id": database_id}
 
-    def list_views(self, database_id: str) -> list[dict]:
-        return self.views_by_database.get(database_id, [])
+    def retrieve_database(self, database_id: str) -> dict:
+        return self.databases_by_id.get(
+            database_id,
+            {"id": database_id, "parent": {"type": "page_id", "page_id": "parent_1"}},
+        )
+
+    def list_views(
+        self,
+        database_id: str | None = None,
+        data_source_id: str | None = None,
+    ) -> list[dict]:
+        if data_source_id is not None:
+            return self.views_by_data_source.get(data_source_id, [])
+        return self.views_by_database.get(database_id or "", [])
 
     def retrieve_view(self, view_id: str) -> dict:
-        for views in self.views_by_database.values():
+        for views in [*self.views_by_database.values(), *self.views_by_data_source.values()]:
             for view in views:
                 if view["id"] == view_id:
                     return view
@@ -83,6 +113,25 @@ class FakeNotionClient:
         view = {"id": f"view_{len(self.created_views) + 1}", **payload}
         self.created_views.append(view)
         return view
+
+    def create_linked_database_view(
+        self,
+        parent_page_id: str,
+        data_source_id: str,
+        name: str,
+        configuration: dict,
+    ) -> dict:
+        return self.create_view(
+            {
+                "create_database": {
+                    "parent": {"type": "page_id", "page_id": parent_page_id},
+                },
+                "data_source_id": data_source_id,
+                "name": name,
+                "type": "table",
+                "configuration": configuration,
+            }
+        )
 
 
 def test_bootstrap_creates_databases_with_relations() -> None:
@@ -183,6 +232,98 @@ def test_bootstrap_configures_slim_default_views_and_full_field_views() -> None:
     created_full_view = next(view for view in client.created_views if view["name"] == "完整字段")
     assert created_full_view["database_id"] == "apps_ds_database"
     assert "parent" not in created_full_view
+
+
+def test_bootstrap_creates_overview_page_with_four_linked_database_views() -> None:
+    client = FakeNotionClient()
+    bootstrapper = NotionBootstrapper(client)
+    database_ids = type(
+        "Ids",
+        (),
+        {
+            "applications": "apps_ds",
+            "activity": "activity_ds",
+            "interviews": "interviews_ds",
+            "review_tasks": "review_ds",
+        },
+    )()
+
+    overview_page_id = bootstrapper.ensure_overview_page("parent_1", database_ids)
+
+    assert overview_page_id == "child_page_1"
+    assert client.created_child_pages == [
+        {"id": "child_page_1", "parent_page_id": "parent_1", "title": "秋招总览"}
+    ]
+    assert [view["name"] for view in client.created_views] == [
+        "投递记录",
+        "流程日志",
+        "面试记录",
+        "复习任务",
+    ]
+    assert [view["data_source_id"] for view in client.created_views] == [
+        "apps_ds",
+        "activity_ds",
+        "interviews_ds",
+        "review_ds",
+    ]
+    assert all(
+        view["create_database"]["parent"] == {"type": "page_id", "page_id": "child_page_1"}
+        for view in client.created_views
+    )
+    apps_configuration = client.created_views[0]["configuration"]
+    assert visible_property_names(apps_configuration) == [
+        "公司",
+        "岗位",
+        "当前阶段",
+        "优先级",
+        "投递日期",
+        "截止日期",
+        "下一步",
+    ]
+
+
+def test_bootstrap_reuses_existing_overview_page_and_linked_view() -> None:
+    client = FakeNotionClient()
+    client.search_page_results["秋招总览"] = {
+        "id": "overview_page",
+        "parent_page_id": "parent_1",
+        "title": "秋招总览",
+    }
+    client.views_by_data_source["apps_ds"] = [
+        {
+            "id": "existing_apps_view",
+            "name": "投递记录",
+            "parent": {"type": "database_id", "database_id": "linked_apps_db"},
+            "data_source_id": "apps_ds",
+            "type": "table",
+        }
+    ]
+    client.databases_by_id["linked_apps_db"] = {
+        "id": "linked_apps_db",
+        "parent": {"type": "page_id", "page_id": "overview_page"},
+    }
+    bootstrapper = NotionBootstrapper(client)
+    database_ids = type(
+        "Ids",
+        (),
+        {
+            "applications": "apps_ds",
+            "activity": "activity_ds",
+            "interviews": "interviews_ds",
+            "review_tasks": "review_ds",
+        },
+    )()
+
+    overview_page_id = bootstrapper.ensure_overview_page("parent_1", database_ids)
+
+    assert overview_page_id == "overview_page"
+    assert client.created_child_pages == []
+    assert client.updated_views[0][0] == "existing_apps_view"
+    assert [view["name"] for view in client.created_views] == [
+        "流程日志",
+        "面试记录",
+        "复习任务",
+    ]
 
 
 def visible_property_names(configuration: dict) -> list[str]:
@@ -403,6 +544,45 @@ def test_notion_client_manages_views(monkeypatch) -> None:
     assert calls[2]["json"] == {"name": "总览"}
     assert calls[3]["method"] == "POST"
     assert calls[3]["url"].endswith("/views")
+
+
+def test_notion_client_creates_child_page_and_linked_database_view(monkeypatch) -> None:
+    calls: list[dict] = []
+    responses = [
+        {"id": "overview_page"},
+        {"id": "linked_view"},
+        {"results": [], "has_more": False},
+    ]
+
+    def client_factory(**kwargs):
+        return RecordingHttpClient(calls, responses)
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", client_factory)
+    client = NotionClient("fake-token")
+
+    client.create_child_page("parent_1", "秋招总览")
+    client.create_linked_database_view(
+        parent_page_id="overview_page",
+        data_source_id="apps_ds",
+        name="投递记录",
+        configuration={"type": "table", "properties": []},
+    )
+    client.list_views(data_source_id="apps_ds")
+
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"].endswith("/pages")
+    assert calls[0]["json"]["parent"] == {"type": "page_id", "page_id": "parent_1"}
+    assert calls[0]["json"]["properties"]["title"][0]["text"]["content"] == "秋招总览"
+    assert calls[1]["method"] == "POST"
+    assert calls[1]["url"].endswith("/views")
+    assert calls[1]["json"]["create_database"]["parent"] == {
+        "type": "page_id",
+        "page_id": "overview_page",
+    }
+    assert calls[1]["json"]["data_source_id"] == "apps_ds"
+    assert calls[2]["params"] == {"data_source_id": "apps_ds"}
 
 
 def test_find_database_by_title_filters_matches_to_parent_page(monkeypatch) -> None:

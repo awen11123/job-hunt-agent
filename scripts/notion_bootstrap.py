@@ -67,6 +67,9 @@ def main() -> int:
             print("notion_database_titles=localized")
             bootstrapper.configure_readable_views(database_ids)
             print("notion_views=configured")
+            if settings.notion_parent_page_id:
+                bootstrapper.ensure_overview_page(settings.notion_parent_page_id, database_ids)
+                print("notion_overview_page=configured")
         print("notion_databases=already_configured")
         return 0
 

@@ -69,6 +69,16 @@ VIEW_SPECS = {
 }
 
 
+OVERVIEW_PAGE_TITLE = "秋招总览"
+
+OVERVIEW_LINKED_VIEWS = (
+    ("applications", "投递记录", APPLICATION_OVERVIEW_FIELDS),
+    ("activity", "流程日志", ACTIVITY_OVERVIEW_FIELDS),
+    ("interviews", "面试记录", INTERVIEW_OVERVIEW_FIELDS),
+    ("review_tasks", "复习任务", REVIEW_TASK_OVERVIEW_FIELDS),
+)
+
+
 class NotionBootstrapper:
     def __init__(self, client: NotionClient) -> None:
         self.client = client
@@ -96,6 +106,7 @@ class NotionBootstrapper:
         )
         database_ids = BootstrappedDatabases(applications, activity, interviews, review_tasks)
         self.configure_readable_views(database_ids)
+        self.ensure_overview_page(parent_page_id, database_ids)
         return database_ids
 
     def rename_configured_databases(self, database_ids: BootstrappedDatabases) -> None:
@@ -125,6 +136,18 @@ class NotionBootstrapper:
                 properties=properties,
                 specs=VIEW_SPECS[key],
             )
+
+    def ensure_overview_page(
+        self,
+        parent_page_id: str,
+        database_ids: BootstrappedDatabases,
+    ) -> str:
+        page = self.client.find_page_by_title(OVERVIEW_PAGE_TITLE, parent_page_id=parent_page_id)
+        if page is None:
+            page = self.client.create_child_page(parent_page_id, OVERVIEW_PAGE_TITLE)
+        page_id = page["id"]
+        self._ensure_overview_linked_views(page_id, database_ids)
+        return page_id
 
     def _get_or_create_database(
         self,
@@ -193,6 +216,67 @@ class NotionBootstrapper:
             }
         )
 
+    def _ensure_overview_linked_views(
+        self,
+        overview_page_id: str,
+        database_ids: BootstrappedDatabases,
+    ) -> None:
+        properties_by_key = {
+            "applications": tuple(application_properties().keys()),
+            "activity": tuple(activity_properties(database_ids.applications).keys()),
+            "interviews": tuple(interview_properties(database_ids.applications).keys()),
+            "review_tasks": tuple(review_task_properties(database_ids.interviews).keys()),
+        }
+        data_source_by_key = {
+            "applications": database_ids.applications,
+            "activity": database_ids.activity,
+            "interviews": database_ids.interviews,
+            "review_tasks": database_ids.review_tasks,
+        }
+        for key, view_name, visible_properties in OVERVIEW_LINKED_VIEWS:
+            data_source_id = data_source_by_key[key]
+            properties = properties_by_key[key]
+            configuration = table_view_configuration(properties, visible_properties)
+            existing_view = self._find_overview_linked_view(
+                data_source_id=data_source_id,
+                view_name=view_name,
+                overview_page_id=overview_page_id,
+            )
+            if existing_view is not None:
+                self.client.update_view(
+                    existing_view["id"],
+                    {"name": view_name, "configuration": configuration},
+                )
+                continue
+            self.client.create_linked_database_view(
+                parent_page_id=overview_page_id,
+                data_source_id=data_source_id,
+                name=view_name,
+                configuration=configuration,
+            )
+
+    def _find_overview_linked_view(
+        self,
+        data_source_id: str,
+        view_name: str,
+        overview_page_id: str,
+    ) -> dict | None:
+        for view_summary in self.client.list_views(data_source_id=data_source_id):
+            view = self.client.retrieve_view(view_summary["id"])
+            if view.get("name") != view_name:
+                continue
+            database_id = parent_database_id(view)
+            if database_id is None:
+                continue
+            database = self.client.retrieve_database(database_id)
+            parent = database.get("parent", {})
+            if parent.get("type") == "page_id" and notion_id_equal(
+                parent.get("page_id", ""),
+                overview_page_id,
+            ):
+                return view
+        return None
+
 
 def first_data_source_id(database: dict) -> str:
     data_sources = database.get("data_sources") or []
@@ -206,6 +290,10 @@ def parent_database_id(data_source: dict) -> str | None:
     if parent.get("type") == "database_id":
         return parent.get("database_id")
     return None
+
+
+def notion_id_equal(left: str, right: str) -> bool:
+    return left.replace("-", "") == right.replace("-", "")
 
 
 def find_view(views: list[dict], name: str) -> dict | None:
