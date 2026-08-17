@@ -79,7 +79,7 @@ class NotionClient:
         return self._request("PATCH", f"/blocks/{block_id}/children", json={"children": children})
 
     def archive_block(self, block_id: str) -> dict:
-        return self._request("PATCH", f"/blocks/{block_id}", json={"archived": True})
+        return self._request("DELETE", f"/blocks/{block_id}")
 
     def retrieve_data_source(self, data_source_id: str) -> dict:
         return self._request("GET", f"/data_sources/{data_source_id}")

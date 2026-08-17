@@ -788,7 +788,7 @@ def test_notion_client_manages_block_children(monkeypatch) -> None:
     responses = [
         {"results": [{"id": "block_1"}], "has_more": False},
         {"results": [{"id": "new_block"}]},
-        {"id": "block_1", "archived": True},
+        {"id": "block_1", "in_trash": True},
     ]
 
     def client_factory(**kwargs):
@@ -812,9 +812,9 @@ def test_notion_client_manages_block_children(monkeypatch) -> None:
     assert calls[1]["method"] == "PATCH"
     assert calls[1]["url"].endswith("/blocks/page_1/children")
     assert calls[1]["json"]["children"][0]["type"] == "paragraph"
-    assert calls[2]["method"] == "PATCH"
+    assert calls[2]["method"] == "DELETE"
     assert calls[2]["url"].endswith("/blocks/block_1")
-    assert calls[2]["json"] == {"archived": True}
+    assert calls[2]["json"] is None
 
 
 def test_find_database_by_title_filters_matches_to_parent_page(monkeypatch) -> None:
