@@ -4,7 +4,11 @@ from job_hunt_agent.domain.models import ActivityEvent, ApplicationDraft, Applic
 from job_hunt_agent.domain.statuses import EventType, RecruitingStage, SyncStatus
 from job_hunt_agent.notion.bootstrap import NotionBootstrapper
 from job_hunt_agent.notion.client import NotionClient
-from job_hunt_agent.repositories import NotionDatabaseIds, NotionJobHuntRepository
+from job_hunt_agent.repositories import (
+    NotionDatabaseIds,
+    NotionJobHuntRepository,
+    activity_from_page,
+)
 from job_hunt_agent.services.applications import ApplicationService
 
 
@@ -515,12 +519,12 @@ def test_notion_repository_loads_all_overview_data() -> None:
         {
             "id": "page_app",
             "properties": {
-                "公司": {"title": [{"plain_text": "示例旅行"}]},
-                "岗位": {"rich_text": [{"plain_text": "AI全栈工程师（上海）"}]},
+                "公司": {"title": [{"plain_text": "Example Travel"}]},
+                "岗位": {"rich_text": [{"plain_text": "AI Platform Engineer"}]},
                 "秋招批次": {"select": {"name": "2026-autumn"}},
                 "当前阶段": {"select": {"name": "applied"}},
                 "优先级": {"select": {"name": "high"}},
-                "下一步": {"rich_text": [{"plain_text": "补充简历版本。"}]},
+                "下一步": {"rich_text": [{"plain_text": "Prepare the technical interview."}]},
                 "最终结果": {"select": {"name": "ongoing"}},
                 "是否待补充": {"checkbox": True},
                 "归档状态": {"checkbox": False},
@@ -532,8 +536,9 @@ def test_notion_repository_loads_all_overview_data() -> None:
             "id": "page_event",
             "properties": {
                 "关联投递": {"relation": [{"id": "page_app"}]},
-                "操作唯一 ID": {"rich_text": [{"plain_text": "op-example-travel"}]},
+                "操作唯一 ID": {"rich_text": [{"plain_text": "op-example"}]},
                 "事件类型": {"select": {"name": "application_created"}},
+                "事件时间": {"date": {"start": "2026-08-10T09:30:00+08:00"}},
                 "同步状态": {"select": {"name": "completed"}},
             },
         }
@@ -554,13 +559,46 @@ def test_notion_repository_loads_all_overview_data() -> None:
     repo.load_all()
 
     assert list(repo.applications) == ["page_app"]
-    assert repo.activity_events[0].operation_id == "op-example-travel"
+    assert repo.activity_events[0].operation_id == "op-example"
+    assert repo.activity_events[0].occurred_at.isoformat() == "2026-08-10T09:30:00+08:00"
     assert client.queried_databases == [
         ("apps_db", None),
         ("activity_db", None),
         ("interviews_db", None),
         ("review_tasks_db", None),
     ]
+
+
+def test_activity_from_notion_page_preserves_date_only_event_time() -> None:
+    event = activity_from_page(
+        {
+            "id": "page_event",
+            "properties": {
+                "事件时间": {"date": {"start": "2026-08-10"}},
+                "事件类型": {"select": {"name": "application_created"}},
+            },
+        }
+    )
+
+    assert event.occurred_at == datetime(2026, 8, 10, tzinfo=timezone.utc)
+
+
+def test_activity_from_notion_page_falls_back_when_event_time_is_missing(
+    monkeypatch,
+) -> None:
+    fallback = datetime(2026, 8, 11, 12, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr("job_hunt_agent.repositories.utc_now", lambda: fallback)
+
+    event = activity_from_page(
+        {
+            "id": "page_event",
+            "properties": {
+                "事件类型": {"select": {"name": "application_created"}},
+            },
+        }
+    )
+
+    assert event.occurred_at == fallback
 
 
 def test_application_service_uses_saved_notion_application_id_for_activity_relation() -> None:

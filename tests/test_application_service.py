@@ -1,3 +1,5 @@
+from datetime import date, datetime, timezone
+
 from job_hunt_agent.domain.models import ApplicationDraft
 from job_hunt_agent.domain.statuses import RecruitingStage
 from job_hunt_agent.repositories import InMemoryJobHuntRepository
@@ -24,6 +26,24 @@ def test_record_application_creates_record_and_activity_event() -> None:
     assert repo.get_application(receipt.record_id).season == "2026-autumn"
     assert repo.activity_events[0].operation_id == "op-create-1"
     assert repo.activity_events[0].sync_status == "completed"
+
+
+def test_record_application_uses_applied_date_for_created_event() -> None:
+    repo = InMemoryJobHuntRepository()
+    service = ApplicationService(repo, default_season="2026-autumn")
+
+    service.record_application(
+        ApplicationDraft(
+            company="Example Robotics",
+            role="AI Platform Engineer",
+            applied_date=date(2026, 8, 10),
+        ),
+        operation_id="op-backdated",
+    )
+
+    assert repo.activity_events[0].occurred_at == datetime(
+        2026, 8, 10, tzinfo=timezone.utc
+    )
 
 
 def test_record_application_is_idempotent_by_operation_id() -> None:
@@ -65,6 +85,7 @@ def test_update_application_stage_writes_pending_then_completed_event() -> None:
         operation_id="op-create-1",
     )
 
+    before_update = datetime.now(timezone.utc)
     receipt = service.update_application_stage(
         application_id=created.record_id,
         to_stage=RecruitingStage.INTERVIEW,
@@ -75,6 +96,11 @@ def test_update_application_stage_writes_pending_then_completed_event() -> None:
     assert receipt.status == "updated"
     assert repo.get_application(created.record_id).current_stage is RecruitingStage.INTERVIEW
     assert repo.activity_events[-1].sync_status == "completed"
+    assert (
+        before_update
+        <= repo.activity_events[-1].occurred_at
+        <= datetime.now(timezone.utc)
+    )
 
 
 def test_update_application_stage_returns_failed_receipt_for_unknown_application() -> None:

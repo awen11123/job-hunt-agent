@@ -330,6 +330,20 @@ def date_value(properties: dict, name: str) -> date | None:
     return date.fromisoformat(start[:10])
 
 
+def datetime_value(properties: dict, name: str) -> datetime | None:
+    value = properties.get(name, {}).get("date")
+    if not value:
+        return None
+    start = value.get("start")
+    if not start:
+        return None
+    if "T" not in start:
+        return datetime.combine(
+            date.fromisoformat(start), datetime.min.time(), tzinfo=timezone.utc
+        )
+    return datetime.fromisoformat(start.replace("Z", "+00:00"))
+
+
 def application_to_properties(record: ApplicationRecord) -> dict:
     return {
         "公司": title_property(record.company),
@@ -401,7 +415,7 @@ def activity_from_page(page: dict) -> ActivityEvent:
         application_id=application_id,
         operation_id=rich_text(properties, "操作唯一 ID") or "",
         event_type=EventType(select_text(properties, "事件类型") or EventType.APPLICATION_CREATED),
-        occurred_at=utc_now(),
+        occurred_at=datetime_value(properties, "事件时间") or utc_now(),
         sync_status=SyncStatus(select_text(properties, "同步状态") or SyncStatus.COMPLETED),
     )
 
