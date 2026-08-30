@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import json
 import os
+from datetime import date
 from pathlib import Path
 from typing import Final
 
@@ -45,6 +48,38 @@ def _status_fill(status: str) -> PatternFill:
     if any(word in status for word in ("测评", "笔试", "面试", "待处理")):
         return _ATTENTION_FILL
     return _ACTIVE_FILL
+
+
+def discover_wps_account_directory(root: Path | None = None) -> Path:
+    root = root or Path.home() / "WPS Cloud Files"
+    candidates = [
+        path
+        for path in root.iterdir()
+        if path.is_dir()
+        and not path.name.startswith(".")
+        and path.name.lower() != "hyperionlocalcache"
+    ]
+    if len(candidates) > 1:
+        raise RuntimeError("multiple WPS account directories found")
+    if not candidates:
+        raise RuntimeError("no WPS account directory found")
+    return candidates[0]
+
+
+def create_sync_probe(marker: str, root: Path | None = None) -> Path:
+    account_directory = discover_wps_account_directory(root)
+    record = {
+        "company": "同步测试",
+        "role": "WPS 固定链接验证",
+        "applied_date": date.today().isoformat(),
+        "location": "本地",
+        "status": "待处理",
+        "next_step": "检查只读链接",
+        "next_time": "",
+        "link": "",
+        "notes": marker,
+    }
+    return build_workbook([record], account_directory / "WPS同步测试.xlsx")
 
 
 def build_workbook(records: list[dict[str, str]], output: Path) -> Path:
@@ -104,3 +139,39 @@ def build_workbook(records: list[dict[str, str]], output: Path) -> Path:
         temporary.unlink(missing_ok=True)
         raise
     return output
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the private WPS job tracker")
+    commands = parser.add_subparsers(dest="command", required=True)
+    probe = commands.add_parser("probe", help="create a fake sync probe")
+    probe.add_argument("--marker", required=True)
+    probe.add_argument("--open", action="store_true")
+    build = commands.add_parser("build", help="build the private job tracker")
+    build.add_argument("--input", required=True, type=Path)
+    build.add_argument("--output", type=Path)
+    args = parser.parse_args(argv)
+
+    if args.command == "probe":
+        output = create_sync_probe(args.marker)
+        print(output)
+        if args.open:
+            os.startfile(output)
+        return 0
+
+    if args.command == "build":
+        records = json.loads(args.input.read_text(encoding="utf-8"))
+        if not isinstance(records, list):
+            raise ValueError("input JSON must contain a list of records")
+        output = args.output or (
+            discover_wps_account_directory() / "秋招投递总览.xlsx"
+        )
+        build_workbook(records, output)
+        print(f"{output} ({len(records)} records)")
+        return 0
+
+    raise AssertionError(f"unsupported command: {args.command}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
