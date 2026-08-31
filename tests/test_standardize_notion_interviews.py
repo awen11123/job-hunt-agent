@@ -12,6 +12,7 @@ from scripts.notion_interview_template import (
 )
 from scripts.standardize_notion_interviews import migrate_reviews
 from tests.test_notion_interview_template import (
+    source,
     synthetic_detailed_review,
     synthetic_properties,
     synthetic_structured_review,
@@ -154,6 +155,24 @@ def test_migration_dry_run_never_mutates() -> None:
     assert report.legacy_blocks == len(
         synthetic_structured_review(question_count=17)
     ) + len(synthetic_detailed_review(code_count=2, action_count=9))
+
+
+def test_migration_preserves_a_follow_up_with_a_repeated_question_number() -> None:
+    api = legacy_api()
+    shortcoming_index = next(
+        index
+        for index, block in enumerate(api.blocks["structured"])
+        if "短板" in str(block)
+    )
+    api.blocks["structured"].insert(
+        shortcoming_index,
+        {**source("paragraph", "Q13 追问补充"), "id": "structured-follow-up"},
+    )
+
+    report = migrate_reviews(api, apply=False)
+
+    assert report.planned_reviews == 2
+    assert api.operations == []
 
 
 def test_migration_refuses_duplicate_standard_sections() -> None:

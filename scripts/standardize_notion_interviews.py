@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.request import Request, urlopen
@@ -144,13 +146,20 @@ def _preservation_check(
 ) -> ReviewValidation:
     report = validate_standard_review(standardized_blocks)
     if kind == "structured":
-        source_questions = sum(
-            block_text(block).strip().lower().startswith("q")
-            and any(character.isdigit() for character in block_text(block)[:5])
-            for block in source_blocks
-        )
-        if report.question_count != source_questions:
-            raise RuntimeError("structured review question count was not preserved")
+        def question_labels(
+            blocks: list[dict[str, object]],
+        ) -> Counter[str]:
+            labels: Counter[str] = Counter()
+            for block in blocks:
+                match = re.match(
+                    r"^(Q\d+)(?!\d)", block_text(block).strip(), re.IGNORECASE
+                )
+                if match:
+                    labels[match.group(1).upper()] += 1
+            return labels
+
+        if question_labels(source_blocks) != question_labels(standardized_blocks):
+            raise RuntimeError("structured review question labels were not preserved")
     elif kind == "detailed":
         source_code = sum(block.get("type") == "code" for block in source_blocks)
         source_actions = sum(block.get("type") == "to_do" for block in source_blocks)
