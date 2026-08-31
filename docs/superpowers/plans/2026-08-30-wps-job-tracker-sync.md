@@ -343,7 +343,7 @@ Expected: tests PASS; exporter reports only the record count and output path. Cu
 - [ ] **Step 5: Privacy-check the repository and commit**
 
 ```powershell
-rtk rg -n "NOTION_TOKEN|notion\.so|<account-id>|job-hunt-applications-private" .
+rtk rg -n "NOTION_TOKEN|notion\.so|<WPS_ACCOUNT_ID>|job-hunt-applications-private" .
 rtk git add scripts/export_notion_applications.py tests/test_export_notion_applications.py
 rtk git commit -m "feat: export private applications for WPS rendering"
 ```
@@ -497,7 +497,7 @@ Resolve `%TEMP%\job-hunt-applications-private.json`, verify it is inside the cur
 - [ ] **Step 4: Run privacy and Git checks**
 
 ```powershell
-rtk rg -n "<account-id>|https://www\.notion\.so/|secret_[A-Za-z0-9]|job-hunt-applications-private\.json" .
+rtk rg -n "<WPS_ACCOUNT_ID>|https://www\.notion\.so/|secret_[A-Za-z0-9]|job-hunt-applications-private\.json" .
 rtk git status --short
 rtk git log -5 --oneline
 ```
