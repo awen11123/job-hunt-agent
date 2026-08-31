@@ -9,6 +9,7 @@ from typing import Final
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 HEADERS: Final = (
@@ -50,6 +51,21 @@ def _status_fill(status: str) -> PatternFill:
     return _ACTIVE_FILL
 
 
+def _merge_adjacent_companies(sheet: Worksheet) -> None:
+    start = 2
+    while start <= sheet.max_row:
+        company = sheet.cell(start, 1).value
+        end = start
+        while end + 1 <= sheet.max_row and sheet.cell(end + 1, 1).value == company:
+            end += 1
+        if company and end > start:
+            sheet.merge_cells(start_row=start, start_column=1, end_row=end, end_column=1)
+            sheet.cell(start, 1).alignment = Alignment(
+                horizontal="center", vertical="center", wrap_text=True
+            )
+        start = end + 1
+
+
 def discover_wps_account_directory(root: Path | None = None) -> Path:
     root = root or Path.home() / "WPS Cloud Files"
     candidates = [
@@ -89,7 +105,11 @@ def build_workbook(records: list[dict[str, str]], output: Path) -> Path:
         if set(record) != expected_fields:
             raise ValueError("each record must contain exactly the nine normalized fields")
 
-    ordered = sorted(records, key=lambda record: record["applied_date"], reverse=True)
+    ordered = sorted(
+        records,
+        key=lambda record: (record["applied_date"], record["company"]),
+        reverse=True,
+    )
 
     workbook = Workbook()
     sheet = workbook.active
@@ -123,6 +143,7 @@ def build_workbook(records: list[dict[str, str]], output: Path) -> Path:
     sheet.auto_filter.ref = f"A1:I{sheet.max_row}"
     sheet.row_dimensions[1].height = 24
     sheet.sheet_view.showGridLines = False
+    _merge_adjacent_companies(sheet)
 
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)

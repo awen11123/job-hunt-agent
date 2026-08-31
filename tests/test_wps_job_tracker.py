@@ -68,6 +68,26 @@ def test_build_workbook_layout_sorting_and_links(tmp_path: Path) -> None:
     assert sheet["E2"].fill.fgColor.rgb != sheet["E3"].fill.fgColor.rgb
 
 
+def test_build_workbook_merges_only_adjacent_identical_companies(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "tracker.xlsx"
+    records = [
+        sample_record(company="同一企业", applied_date="2026-08-30"),
+        sample_record(company="其他企业", applied_date="2026-08-30"),
+        sample_record(company="同一企业", applied_date="2026-08-30"),
+        sample_record(company="同一企业", applied_date="2026-08-28"),
+    ]
+
+    build_workbook(records, output)
+
+    sheet = load_workbook(output)["投递总览"]
+    assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} == {"A2:A3"}
+    assert sheet["A2"].value == "同一企业"
+    assert sheet["A4"].value == "其他企业"
+    assert sheet["A5"].value == "同一企业"
+
+
 def test_failed_save_preserves_existing_workbook(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
