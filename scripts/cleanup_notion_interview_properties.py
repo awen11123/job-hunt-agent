@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import argparse
+import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
+from urllib.request import Request, urlopen
 
+from scripts.export_notion_applications import query_database, read_setting
 from scripts.notion_interview_template import (
     block_text,
     heading,
     validate_standard_review,
 )
+from scripts.simplify_notion_overview import fetch_child_blocks
 
 
 KEEP_PROPERTIES: Final = (
@@ -253,3 +259,153 @@ def cleanup_interview_properties(
         updated_statuses=len(pages),
         deleted_properties=len(DROP_PROPERTIES),
     )
+
+
+class CleanupHttpApi:
+    def __init__(
+        self,
+        token: str,
+        database_id: str,
+        *,
+        requester: Callable[[Request], Any] | None = None,
+    ) -> None:
+        self.token = token
+        self.database_id = database_id
+        self.requester = requester or (lambda request: urlopen(request, timeout=30))
+
+    def _request_json(
+        self,
+        url: str,
+        *,
+        method: str,
+        body: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        request = Request(
+            url,
+            data=(json.dumps(body).encode("utf-8") if body is not None else None),
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Notion-Version": "2022-06-28",
+                "Content-Type": "application/json",
+            },
+            method=method,
+        )
+        with self.requester(request) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError("Notion returned a non-object response")
+        return payload
+
+    def query_database(self, database_id: str) -> list[dict[str, object]]:
+        return query_database(
+            self.token, database_id, requester=self.requester
+        )
+
+    def database_properties(self, database_id: str) -> dict[str, object]:
+        payload = self._request_json(
+            f"https://api.notion.com/v1/databases/{database_id}",
+            method="GET",
+        )
+        properties = payload.get("properties")
+        if not isinstance(properties, dict):
+            raise RuntimeError("Notion database response is missing properties")
+        return properties
+
+    def child_blocks(self, page_id: str) -> list[dict[str, object]]:
+        return fetch_child_blocks(
+            self.token, page_id, requester=self.requester
+        )
+
+    def insert_children_after(
+        self,
+        page_id: str,
+        after_block_id: str,
+        children: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        created: list[dict[str, object]] = []
+        after = after_block_id
+        for offset in range(0, len(children), 100):
+            payload = self._request_json(
+                f"https://api.notion.com/v1/blocks/{page_id}/children",
+                method="PATCH",
+                body={
+                    "after": after,
+                    "children": children[offset : offset + 100],
+                },
+            )
+            results = payload.get("results")
+            if not isinstance(results, list) or not all(
+                isinstance(item, dict) for item in results
+            ):
+                raise RuntimeError("Notion insert response is missing results")
+            chunk = [item for item in results if isinstance(item, dict)]
+            if not chunk:
+                raise RuntimeError("Notion insert response returned no blocks")
+            created.extend(chunk)
+            last_id = chunk[-1].get("id")
+            if offset + 100 < len(children):
+                if not isinstance(last_id, str) or not last_id:
+                    raise RuntimeError("Notion inserted block is missing an ID")
+                after = last_id
+        return created
+
+    def update_page_properties(
+        self, page_id: str, properties: dict[str, object]
+    ) -> None:
+        self._request_json(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            method="PATCH",
+            body={"properties": properties},
+        )
+
+    def delete_database_properties(
+        self, database_id: str, property_names: tuple[str, ...]
+    ) -> None:
+        self._request_json(
+            f"https://api.notion.com/v1/databases/{database_id}",
+            method="PATCH",
+            body={"properties": {name: None for name in property_names}},
+        )
+
+
+def format_dry_run(report: CleanupReport) -> str:
+    return (
+        "dry-run: "
+        f"pages={report.pages}, "
+        f"summaries_to_preserve={report.summary_values_to_preserve}, "
+        f"properties_to_delete={report.properties_to_delete}"
+    )
+
+
+def format_applied(report: CleanupReport) -> str:
+    return (
+        "applied: "
+        f"pages={report.pages}, "
+        f"preserved_summaries={report.preserved_summary_values}, "
+        f"updated_statuses={report.updated_statuses}, "
+        f"deleted_properties={report.deleted_properties}"
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Clean private Notion interview database properties"
+    )
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--apply", action="store_true")
+    args = parser.parse_args(argv)
+
+    token = read_setting("NOTION_TOKEN")
+    database_id = read_setting("NOTION_INTERVIEWS_DB_ID")
+    report = cleanup_interview_properties(
+        CleanupHttpApi(token, database_id),
+        apply=args.apply,
+        database_id=database_id,
+    )
+    print(format_applied(report) if args.apply else format_dry_run(report))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

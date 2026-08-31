@@ -1,13 +1,18 @@
 from copy import deepcopy
+import json
+from urllib.request import Request
 
 import pytest
 
 from scripts.cleanup_notion_interview_properties import (
     CleanupReport,
+    CleanupHttpApi,
     DROP_PROPERTIES,
     KEEP_PROPERTIES,
     build_summary_blocks,
     cleanup_interview_properties,
+    format_applied,
+    format_dry_run,
     property_text,
 )
 from scripts.notion_interview_template import STANDARD_SECTIONS, block_text, heading
@@ -332,3 +337,80 @@ def test_already_clean_database_refuses_duplicate_execution() -> None:
         cleanup_interview_properties(api, apply=True)
 
     assert api.operations == []
+
+
+class FakeResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def __enter__(self) -> "FakeResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+
+def test_delete_database_properties_uses_null_schema_values() -> None:
+    requests: list[Request] = []
+
+    def requester(request: Request) -> FakeResponse:
+        requests.append(request)
+        return FakeResponse({"properties": {}})
+
+    api = CleanupHttpApi(
+        "synthetic-token", "synthetic-database", requester=requester
+    )
+
+    api.delete_database_properties(
+        "synthetic-database", ("旧字段一", "旧字段二")
+    )
+
+    assert requests[0].method == "PATCH"
+    assert requests[0].full_url.endswith("/v1/databases/synthetic-database")
+    assert json.loads(requests[0].data or b"{}") == {
+        "properties": {"旧字段一": None, "旧字段二": None}
+    }
+    assert requests[0].get_header("Authorization") == "Bearer synthetic-token"
+
+
+def test_insert_children_after_sends_after_block_id() -> None:
+    requests: list[Request] = []
+
+    def requester(request: Request) -> FakeResponse:
+        requests.append(request)
+        body = json.loads(request.data or b"{}")
+        return FakeResponse({"results": body["children"]})
+
+    api = CleanupHttpApi(
+        "synthetic-token", "synthetic-database", requester=requester
+    )
+    children = build_summary_blocks(
+        {"总体复盘": rich_property("示例摘要")}, existing_body_text=""
+    )
+
+    created = api.insert_children_after("page", "heading", children)
+
+    assert created == children
+    assert requests[0].method == "PATCH"
+    assert requests[0].full_url.endswith("/v1/blocks/page/children")
+    assert json.loads(requests[0].data or b"{}") == {
+        "after": "heading",
+        "children": children,
+    }
+
+
+def test_aggregate_formatters_never_include_private_values() -> None:
+    dry_run = CleanupReport(2, 2, 8, 0, 0, 0)
+    applied = CleanupReport(2, 2, 8, 2, 2, 8)
+
+    assert format_dry_run(dry_run) == (
+        "dry-run: pages=2, summaries_to_preserve=2, properties_to_delete=8"
+    )
+    assert format_applied(applied) == (
+        "applied: pages=2, preserved_summaries=2, "
+        "updated_statuses=2, deleted_properties=8"
+    )
+    assert "synthetic-token" not in format_dry_run(dry_run) + format_applied(applied)
