@@ -1,12 +1,34 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone, tzinfo
 
+from job_hunt_agent.domain.models import ActivityEvent
 from job_hunt_agent.domain.statuses import EventType, SyncStatus
 from job_hunt_agent.repositories import JobHuntRepository
 
 
 class ReportingService:
-    def __init__(self, repository: JobHuntRepository) -> None:
+    def __init__(
+        self,
+        repository: JobHuntRepository,
+        report_timezone: tzinfo | None = None,
+    ) -> None:
         self.repository = repository
+        self.report_timezone = (
+            report_timezone or datetime.now().astimezone().tzinfo or timezone.utc
+        )
+
+    def _event_day(self, event: ActivityEvent) -> date:
+        if event.event_type is EventType.APPLICATION_CREATED:
+            try:
+                application = self.repository.get_application(event.application_id)
+            except KeyError:
+                pass
+            else:
+                if application.applied_date is not None:
+                    return application.applied_date
+
+        if event.occurred_at.utcoffset() is None:
+            return event.occurred_at.date()
+        return event.occurred_at.astimezone(self.report_timezone).date()
 
     def list_follow_ups(self, today: date, days: int = 7) -> list[dict[str, str]]:
         end = today + timedelta(days=days)
@@ -64,7 +86,7 @@ class ReportingService:
         created = 0
         stage_changes = 0
         for event in self.repository.activity_events:
-            if event.occurred_at.date() != day:
+            if self._event_day(event) != day:
                 continue
             if event.event_type is EventType.APPLICATION_CREATED:
                 created += 1
@@ -86,7 +108,7 @@ class ReportingService:
         analyses_completed = 0
         analyses_failed = 0
         for event in self.repository.activity_events:
-            if not start_day <= event.occurred_at.date() <= end_day:
+            if not start_day <= self._event_day(event) <= end_day:
                 continue
             if event.event_type is EventType.APPLICATION_CREATED:
                 created += 1

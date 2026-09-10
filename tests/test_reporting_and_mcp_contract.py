@@ -1,12 +1,14 @@
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from job_hunt_agent.domain.models import (
+    ActivityEvent,
     ApplicationDraft,
     InterviewAnalysis,
     InterviewDraft,
     ReviewTaskRecord,
 )
-from job_hunt_agent.domain.statuses import RecruitingStage
+from job_hunt_agent.domain.statuses import EventType, RecruitingStage, SyncStatus
 from job_hunt_agent.mcp_server import TOOL_NAMES, JobHuntToolHandlers
 from job_hunt_agent.repositories import InMemoryJobHuntRepository
 from job_hunt_agent.services.applications import ApplicationService
@@ -20,6 +22,42 @@ class NoopAnalyzer:
 
     def analyze(self, raw_notes: str) -> InterviewAnalysis:
         return InterviewAnalysis(overview=raw_notes)
+
+
+def test_daily_review_counts_utc_event_on_local_calendar_day() -> None:
+    repo = InMemoryJobHuntRepository()
+    repo.save_activity_event(
+        ActivityEvent(
+            id="evt_local_midnight",
+            application_id="app_demo",
+            operation_id="op_local_midnight",
+            event_type=EventType.STAGE_UPDATED,
+            occurred_at=datetime(2026, 9, 10, 16, 30, tzinfo=timezone.utc),
+            sync_status=SyncStatus.COMPLETED,
+        )
+    )
+    reporting = ReportingService(repo, report_timezone=ZoneInfo("Asia/Shanghai"))
+
+    review = reporting.generate_daily_review(day=date(2026, 9, 11))
+
+    assert "Stage changes: 1" in review
+
+
+def test_daily_review_keeps_explicit_application_date_as_business_date() -> None:
+    repo = InMemoryJobHuntRepository()
+    ApplicationService(repo, default_season="2026-autumn").record_application(
+        ApplicationDraft(
+            company="Example AI",
+            role="Agent Engineer",
+            applied_date=date(2026, 9, 11),
+        ),
+        operation_id="op_business_date",
+    )
+    reporting = ReportingService(repo, report_timezone=ZoneInfo("America/Los_Angeles"))
+
+    review = reporting.generate_daily_review(day=date(2026, 9, 11))
+
+    assert "Applications created: 1" in review
 
 
 def test_list_follow_ups_includes_deadlines_and_next_steps() -> None:
