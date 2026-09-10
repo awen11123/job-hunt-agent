@@ -272,7 +272,7 @@ class LocalInterviewStore:
             markdown = _markdown_text(draft)
             created_markdown = False
             if markdown_path.exists():
-                if markdown_path.read_text(encoding="utf-8") != markdown:
+                if markdown_path.read_bytes().decode("utf-8") != markdown:
                     raise FileExistsError(markdown_path)
             else:
                 self._atomic_write_markdown(markdown_path, markdown, draft.raw_notes)
@@ -354,7 +354,7 @@ class LocalInterviewStore:
 
     def _record_from_index(self, record: _IndexRecord) -> LocalInterviewRecord:
         markdown_path = self._safe_markdown_path(record.markdown_filename)
-        markdown = markdown_path.read_text(encoding="utf-8")
+        markdown = markdown_path.read_bytes().decode("utf-8")
         raw_notes = _extract_raw_notes(markdown)
         values = record.model_dump(mode="python", exclude={"markdown_filename"})
         return LocalInterviewRecord(

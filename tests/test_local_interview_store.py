@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import multiprocessing
+import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,6 +14,14 @@ from types import ModuleType
 
 import pytest
 from pydantic import ValidationError
+
+
+def _hold_index_lock(root: str, ready, release) -> None:
+    store_module = importlib.import_module("job_hunt_agent.interviews.local_store")
+    index_path = Path(root) / "index.json"
+    with store_module._exclusive_index_lock(index_path):
+        ready.set()
+        release.wait(timeout=10)
 
 
 @pytest.fixture
@@ -94,6 +105,19 @@ def test_raw_notes_preserve_leading_spaces_and_trailing_newlines(
     assert draft.raw_notes == raw_notes
     assert saved.raw_notes == raw_notes
     assert store_module.LocalInterviewStore(tmp_path).get(saved.id).raw_notes == raw_notes
+
+
+def test_raw_notes_preserve_mixed_newline_bytes(
+    store_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    raw_notes = "line1\r\nline2\rline3\n"
+    store = store_module.LocalInterviewStore(tmp_path)
+
+    saved = store.save(make_draft(store_module, raw_notes=raw_notes), "mixed-newlines")
+
+    assert saved.markdown_path.read_bytes().endswith(raw_notes.encode("utf-8"))
+    assert store.get(saved.id).raw_notes == raw_notes
 
 
 def test_save_is_idempotent_by_operation_id_without_rewriting(
@@ -220,6 +244,27 @@ def test_filename_limits_components_by_windows_utf16_units(
     assert len(round_component.encode("utf-16-le")) // 2 <= 80
 
 
+def test_filename_cleans_unsafe_characters_within_component_limit(
+    store_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    company = '<>:"/\\|?*\x00\x1f' + "Ａ" * 60 + ". "
+    round_name = "?*\x01" + "Ｒ" * 50 + ". "
+
+    saved = store_module.LocalInterviewStore(tmp_path).save(
+        make_draft(store_module, company=company, round_name=round_name),
+        "unsafe-within-limit",
+    )
+
+    company_component, round_component, _ = saved.markdown_path.name.rsplit("-", 2)
+    assert company_component == "A" * 60
+    assert round_component == "R" * 50
+    assert len(company_component.encode("utf-16-le")) // 2 <= 80
+    assert len(round_component.encode("utf-16-le")) // 2 <= 80
+    assert not any(character in saved.markdown_path.name for character in '<>:"/\\|?*')
+    assert not any(ord(character) < 32 for character in saved.markdown_path.name)
+
+
 def test_save_recovers_matching_orphan_markdown_after_interrupted_index_commit(
     store_module: ModuleType,
     tmp_path: Path,
@@ -229,12 +274,50 @@ def test_save_recovers_matching_orphan_markdown_after_interrupted_index_commit(
     interview_id = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:16]
     tmp_path.mkdir(parents=True, exist_ok=True)
     orphan = tmp_path / store_module._markdown_filename(draft, interview_id)
-    orphan.write_text(store_module._markdown_text(draft), encoding="utf-8")
+    orphan.write_bytes(store_module._markdown_text(draft).encode("utf-8"))
 
     saved = store_module.LocalInterviewStore(tmp_path).save(draft, operation_id)
 
     assert saved.markdown_path == orphan
     assert len(store_module.LocalInterviewStore(tmp_path).list()) == 1
+
+
+def test_save_recovers_matching_crlf_orphan_without_normalizing_newlines(
+    store_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    operation_id = "interrupted-crlf-save"
+    draft = make_draft(store_module, raw_notes="line1\r\nline2\rline3\n")
+    interview_id = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:16]
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    orphan = tmp_path / store_module._markdown_filename(draft, interview_id)
+    orphan_bytes = store_module._markdown_text(draft).encode("utf-8")
+    orphan.write_bytes(orphan_bytes)
+
+    saved = store_module.LocalInterviewStore(tmp_path).save(draft, operation_id)
+
+    assert saved.markdown_path == orphan
+    assert orphan.read_bytes() == orphan_bytes
+    assert store_module.LocalInterviewStore(tmp_path).get(saved.id).raw_notes == draft.raw_notes
+
+
+def test_conflicting_orphan_is_preserved_and_not_indexed(
+    store_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    operation_id = "conflicting-orphan"
+    draft = make_draft(store_module)
+    interview_id = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:16]
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    orphan = tmp_path / store_module._markdown_filename(draft, interview_id)
+    conflicting_bytes = b"# conflicting\n\n<!-- job-hunt-agent:raw-notes -->\ndifferent"
+    orphan.write_bytes(conflicting_bytes)
+
+    with pytest.raises(FileExistsError):
+        store_module.LocalInterviewStore(tmp_path).save(draft, operation_id)
+
+    assert orphan.read_bytes() == conflicting_bytes
+    assert not (tmp_path / "index.json").exists()
 
 
 def test_index_excludes_raw_notes_tokens_and_private_links(
@@ -252,6 +335,21 @@ def test_index_excludes_raw_notes_tokens_and_private_links(
     assert "secret-token" not in index_text
     assert "private.example" not in index_text
     assert secret in saved.markdown_path.read_text(encoding="utf-8")
+
+
+def test_markdown_contains_fixed_marker_and_missing_marker_is_rejected(
+    store_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    store = store_module.LocalInterviewStore(tmp_path)
+    saved = store.save(make_draft(store_module), "fixed-marker")
+
+    assert store_module.RAW_NOTES_MARKER == "<!-- job-hunt-agent:raw-notes -->"
+    assert b"<!-- job-hunt-agent:raw-notes -->" in saved.markdown_path.read_bytes()
+    saved.markdown_path.write_bytes(b"# title\n\nnotes without marker")
+
+    with pytest.raises(ValueError, match="raw-notes marker is missing"):
+        store.get(saved.id)
 
 
 def test_missing_markdown_file_is_reported(store_module: ModuleType, tmp_path: Path) -> None:
@@ -394,6 +492,167 @@ def test_mark_sync_index_failure_keeps_previous_state(
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_markdown_and_index_atomic_writes_follow_required_event_order(
+    store_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    real_named_temporary_file = store_module.NamedTemporaryFile
+    real_fsync = store_module.os.fsync
+    real_extract_raw_notes = store_module._extract_raw_notes
+    real_validate_index = store_module._Index.model_validate_json
+    real_replace = store_module.os.replace
+
+    class RecordingTemporaryFile:
+        def __init__(self, *args, **kwargs) -> None:
+            self._wrapped = real_named_temporary_file(*args, **kwargs)
+            self.name = self._wrapped.name
+            self.label = "markdown" if ".md." in Path(self.name).name else "index"
+
+        def __enter__(self):
+            self._wrapped.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._wrapped.__exit__(*args)
+
+        def write(self, content: str) -> int:
+            return self._wrapped.write(content)
+
+        def flush(self) -> None:
+            events.append(f"{self.label}:flush")
+            self._wrapped.flush()
+
+        def fileno(self) -> int:
+            return self._wrapped.fileno()
+
+    def record_fsync(file_descriptor: int) -> None:
+        events.append("fsync")
+        real_fsync(file_descriptor)
+
+    def record_markdown_validation(markdown: str) -> str:
+        events.append("markdown:validate")
+        return real_extract_raw_notes(markdown)
+
+    def record_index_validation(content: str):
+        events.append("index:validate")
+        return real_validate_index(content)
+
+    def record_replace(source: str | Path, destination: str | Path) -> None:
+        label = "markdown" if Path(destination).suffix == ".md" else "index"
+        events.append(f"{label}:replace")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(store_module, "NamedTemporaryFile", RecordingTemporaryFile)
+    monkeypatch.setattr(store_module.os, "fsync", record_fsync)
+    monkeypatch.setattr(store_module, "_extract_raw_notes", record_markdown_validation)
+    monkeypatch.setattr(
+        store_module._Index,
+        "model_validate_json",
+        staticmethod(record_index_validation),
+    )
+    monkeypatch.setattr(store_module.os, "replace", record_replace)
+
+    store_module.LocalInterviewStore(tmp_path).save(
+        make_draft(store_module),
+        "atomic-order",
+    )
+
+    assert events == [
+        "markdown:flush",
+        "fsync",
+        "markdown:validate",
+        "markdown:replace",
+        "index:flush",
+        "fsync",
+        "index:validate",
+        "index:replace",
+    ]
+
+
+@pytest.mark.parametrize("failing_call", (1, 2), ids=("markdown", "index"))
+def test_fsync_failure_preserves_existing_store_and_cleans_temps(
+    store_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failing_call: int,
+) -> None:
+    store = store_module.LocalInterviewStore(tmp_path)
+    existing = store.save(make_draft(store_module), "fsync-existing")
+    index_before = store.index_path.read_bytes()
+    markdown_before = existing.markdown_path.read_bytes()
+    real_fsync = store_module.os.fsync
+    calls = 0
+
+    def fail_selected_fsync(file_descriptor: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == failing_call:
+            raise OSError("simulated fsync failure")
+        real_fsync(file_descriptor)
+
+    monkeypatch.setattr(store_module.os, "fsync", fail_selected_fsync)
+
+    with pytest.raises(OSError, match="simulated fsync failure"):
+        store.save(
+            make_draft(store_module, company="fsync-new"),
+            f"fsync-new-{failing_call}",
+        )
+
+    assert store.index_path.read_bytes() == index_before
+    assert existing.markdown_path.read_bytes() == markdown_before
+    assert [path.name for path in tmp_path.glob("*.md")] == [existing.markdown_path.name]
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("stage", ("markdown", "index"))
+def test_validation_failure_preserves_existing_store_and_cleans_temps(
+    store_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+) -> None:
+    store = store_module.LocalInterviewStore(tmp_path)
+    existing = store.save(make_draft(store_module), "validation-existing")
+    index_before = store.index_path.read_bytes()
+    markdown_before = existing.markdown_path.read_bytes()
+
+    if stage == "markdown":
+        monkeypatch.setattr(
+            store_module,
+            "_extract_raw_notes",
+            lambda _markdown: (_ for _ in ()).throw(ValueError("markdown validation failure")),
+        )
+    else:
+        real_validate_index = store_module._Index.model_validate_json
+        validation_calls = 0
+
+        def fail_temporary_index_validation(content: str):
+            nonlocal validation_calls
+            validation_calls += 1
+            if validation_calls == 2:
+                raise ValueError("index validation failure")
+            return real_validate_index(content)
+
+        monkeypatch.setattr(
+            store_module._Index,
+            "model_validate_json",
+            staticmethod(fail_temporary_index_validation),
+        )
+
+    with pytest.raises(ValueError, match=f"{stage} validation failure"):
+        store.save(
+            make_draft(store_module, company=f"{stage}-new"),
+            f"{stage}-validation-new",
+        )
+
+    assert store.index_path.read_bytes() == index_before
+    assert existing.markdown_path.read_bytes() == markdown_before
+    assert [path.name for path in tmp_path.glob("*.md")] == [existing.markdown_path.name]
+    assert not list(tmp_path.glob("*.tmp"))
+
+
 def test_concurrent_save_and_mark_sync_do_not_lose_updates(
     store_module: ModuleType,
     tmp_path: Path,
@@ -528,3 +787,43 @@ def test_empty_sidecar_is_os_locked_before_initialization(
 
     assert sizes_seen_when_locking == [0]
     assert (tmp_path / ".index.json.lock").read_bytes() == b"\0"
+
+
+def test_cross_process_lock_times_out_then_allows_save_and_mark_sync(
+    store_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = store_module.LocalInterviewStore(tmp_path)
+    existing = store.save(make_draft(store_module), "process-lock-existing")
+    context = multiprocessing.get_context("spawn")
+    ready = context.Event()
+    release = context.Event()
+    holder = context.Process(
+        target=_hold_index_lock,
+        args=(os.fspath(tmp_path), ready, release),
+    )
+    holder.start()
+
+    try:
+        assert ready.wait(timeout=10)
+        monkeypatch.setattr(store_module, "LOCK_TIMEOUT_SECONDS", 0.1)
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="interview store is busy"):
+            store.mark_sync(existing.id, "pending")
+        assert time.monotonic() - started < 2
+    finally:
+        release.set()
+        holder.join(timeout=10)
+        if holder.is_alive():
+            holder.terminate()
+            holder.join(timeout=5)
+
+    assert holder.exitcode == 0
+    created = store.save(
+        make_draft(store_module, company="跨进程锁"),
+        "process-lock-new",
+    )
+    updated = store.mark_sync(existing.id, "pending")
+    assert store.get(created.id) == created
+    assert updated.sync_status == "pending"
