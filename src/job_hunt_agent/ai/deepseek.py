@@ -1,5 +1,7 @@
 from typing import Protocol
 
+from job_hunt_agent.ai.openai_compatible import OpenAICompatibleProvider
+from job_hunt_agent.ai.provider import ChatMessage, ProviderConfig
 from job_hunt_agent.domain.models import InterviewAnalysis
 
 
@@ -15,32 +17,27 @@ class DeepSeekInterviewAnalyzer:
     prompt_version = "interview-analysis-v1"
 
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
         self.model_version = model
+        self._provider = OpenAICompatibleProvider(
+            ProviderConfig(
+                name="deepseek",
+                base_url=base_url,
+                model=model,
+                api_key=api_key,
+            )
+        )
 
     def analyze(self, raw_notes: str) -> InterviewAnalysis:
-        import httpx
-
-        response = httpx.post(
-            f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model_version,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Return strict JSON for the InterviewAnalysis schema. "
-                            "Do not invent missing candidate answers."
-                        ),
-                    },
-                    {"role": "user", "content": raw_notes},
-                ],
-                "response_format": {"type": "json_object"},
-            },
-            timeout=60,
+        return self._provider.complete_structured(
+            [
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "Return strict JSON for the InterviewAnalysis schema. "
+                        "Do not invent missing candidate answers."
+                    ),
+                ),
+                ChatMessage(role="user", content=raw_notes),
+            ],
+            InterviewAnalysis,
         )
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        return InterviewAnalysis.model_validate_json(content)
