@@ -14,7 +14,17 @@ const fakeApi = {
     notion_enabled: false,
     model_enabled: false,
   }),
+  saveConfig: async (config: {
+    excel_path: string | null;
+    backup_dir: string;
+    interview_dir: string;
+    notion_enabled: boolean;
+    model_enabled: boolean;
+  }) => config,
   proposeAction: async () => {
+    throw new Error("not used in the shell test");
+  },
+  modifyAction: async () => {
     throw new Error("not used in the shell test");
   },
   confirmAction: async () => {

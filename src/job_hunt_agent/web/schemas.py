@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -11,3 +13,7 @@ class ProposeActionRequest(_ApiRequest):
 
 class ConfirmActionRequest(_ApiRequest):
     confirmation_token: str = Field(min_length=1)
+
+
+class ModifyActionRequest(_ApiRequest):
+    payload: dict[str, Any]

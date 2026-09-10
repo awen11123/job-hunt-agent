@@ -316,6 +316,78 @@ def test_cancel_requires_session_and_cancelled_draft_cannot_execute(
     )
 
 
+def test_modify_action_requires_session_rotates_token_and_uses_new_payload(
+    client: TestClient,
+) -> None:
+    preview = client.post(
+        "/api/actions/propose",
+        json={"text": "今天投了待修改科技的 AI Agent 工程师，杭州"},
+    ).json()
+    payload = {
+        **preview["payload"],
+        "company": "修改后科技",
+        "role": "LLM 应用工程师",
+    }
+
+    missing = client.patch(
+        f"/api/actions/{preview['id']}",
+        json={"payload": payload},
+    )
+    modified = client.patch(
+        f"/api/actions/{preview['id']}",
+        headers=session_headers(),
+        json={"payload": payload},
+    )
+
+    assert missing.status_code == 401
+    assert modified.status_code == 200
+    changed = modified.json()
+    assert changed["payload"]["company"] == "修改后科技"
+    assert changed["payload"]["role"] == "LLM 应用工程师"
+    assert changed["confirmation_token"] != preview["confirmation_token"]
+
+    stale = client.post(
+        f"/api/actions/{preview['id']}/confirm",
+        headers=session_headers(),
+        json={"confirmation_token": preview["confirmation_token"]},
+    )
+    confirmed = client.post(
+        f"/api/actions/{preview['id']}/confirm",
+        headers=session_headers(),
+        json={"confirmation_token": changed["confirmation_token"]},
+    )
+
+    assert stale.status_code == 403
+    assert confirmed.status_code == 200
+    created = client.get("/api/applications").json()
+    assert any(
+        item["company"] == "修改后科技" and item["role"] == "LLM 应用工程师"
+        for item in created
+    )
+
+
+def test_modify_action_rejects_invalid_payload_without_leaking_it(
+    client: TestClient,
+) -> None:
+    preview = client.post(
+        "/api/actions/propose",
+        json={"text": "今天投了安全科技的 AI Agent 工程师，杭州"},
+    ).json()
+
+    response = client.patch(
+        f"/api/actions/{preview['id']}",
+        headers=session_headers(),
+        json={"payload": {"company": "private-sentinel"}},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "draft_conflict",
+        "message": "操作草稿当前状态不允许此操作。",
+    }
+    assert "private-sentinel" not in response.text
+
+
 def test_unknown_draft_and_invalid_requests_have_stable_statuses(client: TestClient) -> None:
     assert client.get("/api/actions/missing").status_code == 404
     assert client.post("/api/actions/propose", json={}).status_code == 422

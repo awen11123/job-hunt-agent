@@ -23,7 +23,11 @@ from job_hunt_agent.web.dependencies import (
     build_services,
     require_session,
 )
-from job_hunt_agent.web.schemas import ConfirmActionRequest, ProposeActionRequest
+from job_hunt_agent.web.schemas import (
+    ConfirmActionRequest,
+    ModifyActionRequest,
+    ProposeActionRequest,
+)
 
 
 SessionRequired = Annotated[None, Depends(require_session)]
@@ -132,6 +136,22 @@ def build_api_router(services: WebServices) -> APIRouter:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=_detail("draft_not_found", "未找到操作草稿。"),
             ) from None
+
+    @router.patch("/actions/{draft_id}", response_model=ActionDraft)
+    def modify_action(
+        draft_id: str,
+        request: ModifyActionRequest,
+        _session: SessionRequired,
+    ) -> ActionDraft:
+        try:
+            return services.action_service.modify(draft_id, request.payload)
+        except KeyError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_detail("draft_not_found", "未找到操作草稿。"),
+            ) from None
+        except ValueError as error:
+            _raise_draft_state_error(error)
 
     @router.post("/actions/{draft_id}/confirm", response_model=ActionExecution)
     def confirm_action(

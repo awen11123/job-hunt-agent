@@ -15,7 +15,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("HttpJobHuntApi", () => {
-  it("sends the injected session token only on confirmation mutations", async () => {
+  it("sends the injected session token on every mutation except propose", async () => {
     const requests: RecordedRequest[] = [];
     const fetcher: typeof fetch = async (input, init = {}) => {
       requests.push({ url: String(input), init });
@@ -25,23 +25,34 @@ describe("HttpJobHuntApi", () => {
 
     await api.listApplications();
     await api.proposeAction("今天投了示例公司");
+    await api.modifyAction("draft/1", { company: "新公司", role: "Agent 工程师" });
     await api.confirmAction("draft/1", "confirm-token");
     await api.cancelAction("draft/1");
+    await api.saveConfig({
+      excel_path: "C:/tracker.xlsx",
+      backup_dir: "C:/backups",
+      interview_dir: "C:/interviews",
+      notion_enabled: false,
+      model_enabled: false,
+    });
 
     expect(requests.map(({ url }) => url)).toEqual([
       "/api/applications",
       "/api/actions/propose",
+      "/api/actions/draft%2F1",
       "/api/actions/draft%2F1/confirm",
       "/api/actions/draft%2F1/cancel",
+      "/api/config",
     ]);
     expect(new Headers(requests[0].init.headers).has("X-Job-Hunt-Session")).toBe(false);
     expect(new Headers(requests[1].init.headers).has("X-Job-Hunt-Session")).toBe(false);
-    expect(new Headers(requests[2].init.headers).get("X-Job-Hunt-Session")).toBe(
-      "private-session",
-    );
-    expect(new Headers(requests[3].init.headers).get("X-Job-Hunt-Session")).toBe(
-      "private-session",
-    );
+    for (const request of requests.slice(2)) {
+      expect(new Headers(request.init.headers).get("X-Job-Hunt-Session")).toBe(
+        "private-session",
+      );
+    }
+    expect(requests[2].init.method).toBe("PATCH");
+    expect(requests[5].init.method).toBe("PUT");
   });
 
   it("preserves a structured API error code and message", async () => {

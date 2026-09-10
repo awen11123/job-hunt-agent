@@ -10,7 +10,9 @@ export interface JobHuntApi {
   listApplications(): Promise<Application[]>;
   listInterviews(applicationId?: string): Promise<Interview[]>;
   getConfig(): Promise<LocalConfig>;
+  saveConfig(config: LocalConfig): Promise<LocalConfig>;
   proposeAction(text: string): Promise<ActionDraft>;
+  modifyAction(id: string, payload: ActionDraft["payload"]): Promise<ActionDraft>;
   confirmAction(id: string, token: string): Promise<ActionExecution>;
   cancelAction(id: string): Promise<ActionDraft>;
 }
@@ -95,10 +97,26 @@ export class HttpJobHuntApi implements JobHuntApi {
     return this.request<LocalConfig>("/config");
   }
 
+  saveConfig(config: LocalConfig): Promise<LocalConfig> {
+    return this.request<LocalConfig>("/config", {
+      method: "PUT",
+      headers: { "X-Job-Hunt-Session": this.sessionToken },
+      body: JSON.stringify(config),
+    });
+  }
+
   proposeAction(text: string): Promise<ActionDraft> {
     return this.request<ActionDraft>("/actions/propose", {
       method: "POST",
       body: JSON.stringify({ text }),
+    });
+  }
+
+  modifyAction(id: string, payload: ActionDraft["payload"]): Promise<ActionDraft> {
+    return this.request<ActionDraft>(`/actions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "X-Job-Hunt-Session": this.sessionToken },
+      body: JSON.stringify({ payload }),
     });
   }
 
