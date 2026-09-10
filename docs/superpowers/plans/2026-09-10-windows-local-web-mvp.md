@@ -535,7 +535,7 @@ rtk proxy git commit -m "feat: add job tracking web experience"
 - Create: `tests/test_web_launcher.py`
 - Modify: `README.md`
 
-- [ ] **Step 1: Write failing static-serving and launcher tests**
+- [x] **Step 1: Write failing static-serving and launcher tests**
 
 ```python
 def test_app_serves_built_frontend(tmp_path: Path) -> None:
@@ -562,20 +562,20 @@ Add an integration test proving the served page receives the non-empty in-memory
 expected by `frontend/src/main.tsx`, and that the token can authorize confirm/cancel requests. The
 token must not appear in the URL, logs, configuration file, or other persistent storage.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_web_launcher.py`
 
 Expected: FAIL because the launcher does not exist.
 
-- [ ] **Step 3: Implement static serving and `python -m` launcher**
+- [x] **Step 3: Implement static serving and `python -m` launcher**
 
 The launcher must select a free loopback port, start Uvicorn, poll `/api/health`, and only then call
 `webbrowser.open`. Static `index.html` responses must inject the current process session token into
 the root element's `data-session-token` attribute without modifying the built file on disk. Add
 `python -m job_hunt_agent.web.launcher` to the README.
 
-- [ ] **Step 4: Run complete MVP verification**
+- [x] **Step 4: Run complete MVP verification**
 
 Run: `rtk proxy python -X utf8 -m pytest -q`
 
@@ -589,7 +589,7 @@ Run: `rtk proxy python -X utf8 scripts/privacy_scan.py README.md docs examples f
 
 Expected: all commands pass with no privacy findings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add README.md src/job_hunt_agent/web tests/test_web_launcher.py
