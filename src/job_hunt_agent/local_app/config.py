@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 
 class LocalAppConfig(BaseModel):
@@ -13,6 +13,22 @@ class LocalAppConfig(BaseModel):
     interview_dir: Path
     notion_enabled: bool = False
     model_enabled: bool = False
+
+    @field_validator("excel_path", "backup_dir", "interview_dir", mode="before")
+    @classmethod
+    def validate_absolute_path(cls, value: object, info: ValidationInfo) -> object:
+        is_blank = value is None or (isinstance(value, str) and not value.strip())
+        if is_blank:
+            if info.field_name == "excel_path":
+                return None
+            raise ValueError(f"{info.field_name} must not be empty")
+
+        if isinstance(value, (str, Path)):
+            path = Path(value)
+            if not path.is_absolute():
+                raise ValueError(f"{info.field_name} must be an absolute path")
+            return value
+        return value
 
     @classmethod
     def defaults(cls, app_data_root: Path) -> "LocalAppConfig":
@@ -49,6 +65,8 @@ class LocalConfigStore:
             ) as temporary:
                 temporary_path = Path(temporary.name)
                 temporary.write(safe_config.model_dump_json(indent=2))
+                temporary.flush()
+                os.fsync(temporary.fileno())
 
             LocalAppConfig.model_validate_json(temporary_path.read_text(encoding="utf-8"))
             os.replace(temporary_path, self.path)
