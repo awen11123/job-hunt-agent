@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 
 import { ApiError, type JobHuntApi } from "../api/client";
 import type { ActionDraft, Application, Interview } from "../api/types";
+import { compareInstantsDescending } from "../utils/localDate";
 import { ActionPreview } from "./ActionPreview";
 import { isClosedStatus } from "./ApplicationTable";
 import { INTERVIEW_STAGE_MARKERS, isPendingStage } from "./StatusSummary";
@@ -66,7 +67,7 @@ function latestInterview(interviews: Interview[]): Interview | null {
     [...interviews].sort((left, right) => {
       const leftDate = left.scheduled_at || left.created_at;
       const rightDate = right.scheduled_at || right.created_at;
-      return rightDate.localeCompare(leftDate);
+      return compareInstantsDescending(leftDate, rightDate);
     })[0] || null
   );
 }

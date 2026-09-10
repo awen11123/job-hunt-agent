@@ -9,6 +9,7 @@ import {
   INTERVIEW_STAGE_MARKERS,
   isPendingStage,
 } from "../components/StatusSummary";
+import { localDateFromInstant } from "../utils/localDate";
 
 interface ReviewViewProps {
   api: JobHuntApi;
@@ -27,7 +28,7 @@ function isInRange(value: string | null, start: string, end: string): boolean {
 }
 
 function interviewDate(interview: Interview): string {
-  return (interview.scheduled_at || interview.created_at).slice(0, 10);
+  return localDateFromInstant(interview.scheduled_at || interview.created_at);
 }
 
 function stageText(application: Application): string {

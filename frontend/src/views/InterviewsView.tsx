@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { JobHuntApi } from "../api/client";
 import type { Interview } from "../api/types";
+import { compareInstantsDescending, localDateFromInstant } from "../utils/localDate";
 
 const syncLabels = {
   local: "仅本地",
@@ -13,9 +14,10 @@ const syncLabels = {
 
 interface InterviewsViewProps {
   api: JobHuntApi;
+  refreshVersion?: number;
 }
 
-export function InterviewsView({ api }: InterviewsViewProps) {
+export function InterviewsView({ api, refreshVersion = 0 }: InterviewsViewProps) {
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -40,14 +42,14 @@ export function InterviewsView({ api }: InterviewsViewProps) {
     return () => {
       current = false;
     };
-  }, [api, retryVersion]);
+  }, [api, refreshVersion, retryVersion]);
 
   const sorted = useMemo(
     () =>
       [...interviews].sort((left, right) => {
         const leftDate = left.scheduled_at || left.created_at;
         const rightDate = right.scheduled_at || right.created_at;
-        return rightDate.localeCompare(leftDate);
+        return compareInstantsDescending(leftDate, rightDate);
       }),
     [interviews],
   );
@@ -98,7 +100,7 @@ export function InterviewsView({ api }: InterviewsViewProps) {
                     <span>{interview.round_name}</span>
                   </div>
                   <time dateTime={interview.scheduled_at || interview.created_at}>
-                    {(interview.scheduled_at || interview.created_at).slice(0, 10)}
+                    {localDateFromInstant(interview.scheduled_at || interview.created_at)}
                   </time>
                 </div>
                 <div className="interview-tags">

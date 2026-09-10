@@ -26,9 +26,12 @@ class ReportingService:
                 if application.applied_date is not None:
                     return application.applied_date
 
-        if event.occurred_at.utcoffset() is None:
-            return event.occurred_at.date()
-        return event.occurred_at.astimezone(self.report_timezone).date()
+        return self._instant_day(event.occurred_at)
+
+    def _instant_day(self, value: datetime) -> date:
+        if value.utcoffset() is None:
+            return value.date()
+        return value.astimezone(self.report_timezone).date()
 
     def list_follow_ups(self, today: date, days: int = 7) -> list[dict[str, str]]:
         end = today + timedelta(days=days)
@@ -52,7 +55,7 @@ class ReportingService:
         for interview in self.repository.interviews.values():
             if interview.scheduled_at is None:
                 continue
-            scheduled_day = interview.scheduled_at.date()
+            scheduled_day = self._instant_day(interview.scheduled_at)
             if today <= scheduled_day <= end:
                 application = self.repository.get_application(interview.application_id)
                 items.append(
@@ -173,7 +176,10 @@ class ReportingService:
 
         lines.extend(["", "## 最近流程"])
         if recent_events:
-            lines.extend(event_line(event, self.repository) for event in recent_events)
+            lines.extend(
+                event_line(event, self.repository, self._event_day(event))
+                for event in recent_events
+            )
         else:
             lines.append("- 暂无流程变化。")
 
@@ -196,7 +202,7 @@ def application_line(record) -> str:
     )
 
 
-def event_line(event, repository: JobHuntRepository) -> str:
+def event_line(event, repository: JobHuntRepository, event_day: date) -> str:
     try:
         application = repository.get_application(event.application_id)
         title = f"{application.company} - {application.role}"
@@ -208,7 +214,7 @@ def event_line(event, repository: JobHuntRepository) -> str:
         action = f"阶段更新：{title} → {chinese_stage(event.to_stage.value if event.to_stage else '')}"
     else:
         action = f"{event.event_type.value}：{title}"
-    return f"- {event.occurred_at.date().isoformat()} {action}"
+    return f"- {event_day.isoformat()} {action}"
 
 
 def chinese_stage(value: str) -> str:

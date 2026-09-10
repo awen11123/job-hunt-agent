@@ -397,12 +397,22 @@ def test_modify_action_rejects_invalid_payload_without_leaking_it(
         json={"payload": {"company": "private-sentinel"}},
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 422
     assert response.json()["detail"] == {
-        "code": "draft_conflict",
-        "message": "操作草稿当前状态不允许此操作。",
+        "code": "invalid_action_payload",
+        "message": "变更内容无效，请检查必填字段和字段格式。",
     }
     assert "private-sentinel" not in response.text
+
+    invalid_url = client.patch(
+        f"/api/actions/{preview['id']}",
+        headers=session_headers(),
+        json={"payload": {**preview["payload"], "job_url": "private-url-sentinel"}},
+    )
+
+    assert invalid_url.status_code == 422
+    assert invalid_url.json()["detail"]["code"] == "invalid_action_payload"
+    assert "private-url-sentinel" not in invalid_url.text
 
 
 def test_unknown_draft_and_invalid_requests_have_stable_statuses(client: TestClient) -> None:

@@ -6,9 +6,10 @@ import type { LocalConfig } from "../api/types";
 
 interface SettingsViewProps {
   api: JobHuntApi;
+  onSaved?: () => void;
 }
 
-export function SettingsView({ api }: SettingsViewProps) {
+export function SettingsView({ api, onSaved }: SettingsViewProps) {
   const [config, setConfig] = useState<LocalConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -43,6 +44,7 @@ export function SettingsView({ api }: SettingsViewProps) {
       const saved = await api.saveConfig(config);
       setConfig(saved);
       setMessage("设置已保存");
+      onSaved?.();
     } catch {
       setError("设置保存失败，请检查路径后重试。");
     } finally {
@@ -53,7 +55,15 @@ export function SettingsView({ api }: SettingsViewProps) {
   const setPath = (field: "excel_path" | "backup_dir" | "interview_dir", value: string) => {
     if (!config) return;
     setMessage(null);
+    setError(null);
     setConfig({ ...config, [field]: field === "excel_path" && !value ? null : value });
+  };
+
+  const setToggle = (field: "notion_enabled" | "model_enabled", value: boolean) => {
+    if (!config) return;
+    setMessage(null);
+    setError(null);
+    setConfig({ ...config, [field]: value });
   };
 
   return (
@@ -103,9 +113,7 @@ export function SettingsView({ api }: SettingsViewProps) {
                 type="checkbox"
                 aria-label="启用 Notion"
                 checked={config.notion_enabled}
-                onChange={(event) =>
-                  setConfig({ ...config, notion_enabled: event.target.checked })
-                }
+                onChange={(event) => setToggle("notion_enabled", event.target.checked)}
               />
             </label>
             <label className="toggle-field">
@@ -114,9 +122,7 @@ export function SettingsView({ api }: SettingsViewProps) {
                 type="checkbox"
                 aria-label="启用模型"
                 checked={config.model_enabled}
-                onChange={(event) =>
-                  setConfig({ ...config, model_enabled: event.target.checked })
-                }
+                onChange={(event) => setToggle("model_enabled", event.target.checked)}
               />
             </label>
           </section>

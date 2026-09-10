@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -204,10 +204,16 @@ describe("AppShell", () => {
     expect(within(panel).getByText(/随后讨论了评测体系/)).toBeInTheDocument();
   });
 
-  it("saves settings through the API", async () => {
+  it("saves settings, clears stale success, and refreshes every data view", async () => {
     const saveConfig = vi.fn().mockResolvedValue({ ...config, model_enabled: true });
+    const listApplications = vi.fn().mockResolvedValue(applications);
+    const listInterviews = vi.fn().mockResolvedValue(interviews);
     const user = userEvent.setup();
-    render(<AppShell api={api({ saveConfig })} />);
+    render(<AppShell api={api({ saveConfig, listApplications, listInterviews })} />);
+    await waitFor(() => {
+      expect(listApplications).toHaveBeenCalledTimes(2);
+      expect(listInterviews).toHaveBeenCalledTimes(2);
+    });
     await user.click(screen.getByRole("tab", { name: "设置" }));
 
     const modelToggle = await screen.findByRole("checkbox", { name: "启用模型" });
@@ -216,6 +222,13 @@ describe("AppShell", () => {
 
     expect(saveConfig).toHaveBeenCalledWith({ ...config, model_enabled: true });
     expect(await screen.findByText("设置已保存")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(listApplications).toHaveBeenCalledTimes(4);
+      expect(listInterviews).toHaveBeenCalledTimes(4);
+    });
+
+    await user.click(modelToggle);
+    expect(screen.queryByText("设置已保存")).not.toBeInTheDocument();
   });
 
   it("shows daily, natural-week, exclusive funnel, and todo review sections", async () => {

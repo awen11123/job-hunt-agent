@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from job_hunt_agent.actions import (
@@ -149,6 +150,14 @@ def build_api_router(services: WebServices) -> APIRouter:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=_detail("draft_not_found", "未找到操作草稿。"),
+            ) from None
+        except ValidationError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=_detail(
+                    "invalid_action_payload",
+                    "变更内容无效，请检查必填字段和字段格式。",
+                ),
             ) from None
         except ValueError as error:
             _raise_draft_state_error(error)

@@ -40,7 +40,7 @@ interface AppShellProps {
 export function AppShell({ api }: AppShellProps) {
   const [activeTab, setActiveTab] = useState<TabId>("applications");
   const [assistantOpen, setAssistantOpen] = useState(true);
-  const [applicationVersion, setApplicationVersion] = useState(0);
+  const [dataVersion, setDataVersion] = useState(0);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const moveToTab = (index: number) => {
@@ -124,7 +124,7 @@ export function AppShell({ api }: AppShellProps) {
             aria-labelledby="tab-applications"
             hidden={activeTab !== "applications"}
           >
-            <ApplicationsView api={api} refreshVersion={applicationVersion} />
+            <ApplicationsView api={api} refreshVersion={dataVersion} />
           </section>
           <section
             id="panel-interviews"
@@ -132,7 +132,7 @@ export function AppShell({ api }: AppShellProps) {
             aria-labelledby="tab-interviews"
             hidden={activeTab !== "interviews"}
           >
-            <InterviewsView api={api} />
+            <InterviewsView api={api} refreshVersion={dataVersion} />
           </section>
           <section
             id="panel-review"
@@ -140,7 +140,7 @@ export function AppShell({ api }: AppShellProps) {
             aria-labelledby="tab-review"
             hidden={activeTab !== "review"}
           >
-            <ReviewView api={api} refreshVersion={applicationVersion} />
+            <ReviewView api={api} refreshVersion={dataVersion} />
           </section>
           <section
             id="panel-settings"
@@ -148,7 +148,10 @@ export function AppShell({ api }: AppShellProps) {
             aria-labelledby="tab-settings"
             hidden={activeTab !== "settings"}
           >
-            <SettingsView api={api} />
+            <SettingsView
+              api={api}
+              onSaved={() => setDataVersion((value) => value + 1)}
+            />
           </section>
         </main>
 
@@ -168,7 +171,7 @@ export function AppShell({ api }: AppShellProps) {
             </div>
             <AssistantPanel
               api={api}
-              onApplicationsChanged={() => setApplicationVersion((value) => value + 1)}
+              onApplicationsChanged={() => setDataVersion((value) => value + 1)}
             />
           </aside>
         )}
