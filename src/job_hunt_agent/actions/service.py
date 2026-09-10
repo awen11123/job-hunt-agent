@@ -14,6 +14,7 @@ from job_hunt_agent.actions.models import (
     ActionExecution,
     ActionName,
     ActionReceipt,
+    DisclosureCategory,
 )
 from job_hunt_agent.domain.statuses import RecruitingStage
 from job_hunt_agent.excel import TrackerApplicationDraft, TrackerApplicationPatch
@@ -126,6 +127,7 @@ class ActionDraftService:
         payload: Mapping[str, Any],
         before: Mapping[str, Any] | None = None,
         operation_id: str | None = None,
+        disclosure: list[DisclosureCategory] | None = None,
     ) -> ActionDraft:
         if operation_id is None:
             requested_operation_id = str(uuid.uuid4())
@@ -144,6 +146,7 @@ class ActionDraftService:
                 action=action,
                 payload=dict(payload),
                 before=copy.deepcopy(dict(before)) if before is not None else None,
+                disclosure=list(disclosure or []),
                 confirmation_token=self._token_factory(),
                 operation_id=requested_operation_id,
                 expires_at=now + self._ttl,
@@ -162,6 +165,7 @@ class ActionDraftService:
                 action=draft.action,
                 payload=dict(payload),
                 before=copy.deepcopy(draft.before),
+                disclosure=list(draft.disclosure),
                 status="pending",
                 confirmation_token=draft.confirmation_token,
                 operation_id=draft.operation_id,

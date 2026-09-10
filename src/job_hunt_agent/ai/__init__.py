@@ -9,10 +9,20 @@ from job_hunt_agent.ai.provider import (
 
 __all__ = [
     "ChatMessage",
+    "ActionPlan",
     "DeepSeekInterviewAnalyzer",
     "InterviewAnalyzer",
     "LLMProvider",
     "LLMProviderError",
+    "LLMActionPlanner",
+    "InvalidActionPlanError",
     "OpenAICompatibleProvider",
     "ProviderConfig",
+    "UnsupportedActionError",
 ]
+from job_hunt_agent.ai.action_planner import (
+    ActionPlan,
+    InvalidActionPlanError,
+    LLMActionPlanner,
+    UnsupportedActionError,
+)

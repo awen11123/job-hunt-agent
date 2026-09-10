@@ -219,13 +219,7 @@ def test_config_is_whitelisted_persisted_and_refreshes_services(tmp_path: Path) 
         json=saved.model_dump(mode="json"),
     )
 
-    assert set(get_response.json()) == {
-        "excel_path",
-        "backup_dir",
-        "interview_dir",
-        "notion_enabled",
-        "model_enabled",
-    }
+    assert set(get_response.json()) == set(LocalAppConfig.model_fields)
     assert missing.status_code == 401
     assert wrong.status_code == 403
     assert "wrong-session-token" not in wrong.text

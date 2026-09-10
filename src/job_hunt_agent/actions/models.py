@@ -11,6 +11,7 @@ from job_hunt_agent.interviews import LocalInterviewDraft
 
 ActionName = Literal["create_application", "update_application", "save_interview"]
 ActionStatus = Literal["pending", "confirmed", "cancelled", "expired"]
+DisclosureCategory = Literal["application_metadata", "interview_notes"]
 ReceiptStatus = Literal["created", "updated", "unchanged", "failed"]
 
 
@@ -32,6 +33,7 @@ class ActionDraft(_ActionModel):
     action: ActionName
     payload: dict[str, Any]
     before: dict[str, Any] | None = None
+    disclosure: list[DisclosureCategory] = Field(default_factory=list)
     status: ActionStatus = "pending"
     confirmation_token: str = Field(min_length=1, repr=False)
     operation_id: str = Field(min_length=1)
