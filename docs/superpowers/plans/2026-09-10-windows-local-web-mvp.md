@@ -484,7 +484,7 @@ rtk proxy git commit -m "feat: scaffold local web frontend"
 - Create: `frontend/src/components/AppShell.test.tsx`
 - Create: `frontend/src/components/AssistantPanel.test.tsx`
 
-- [ ] **Step 1: Write failing interaction tests**
+- [x] **Step 1: Write failing interaction tests**
 
 ```tsx
 it("never confirms a write directly from a chat message", async () => {
@@ -500,17 +500,17 @@ it("never confirms a write directly from a chat message", async () => {
 
 Add tests for search, status filters, closed-process separation, preview edit/cancel/confirm, Excel-lock errors, and empty states.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy npm test -- --run`
 
 Expected: FAIL because the view components do not exist.
 
-- [ ] **Step 3: Implement the operational UI**
+- [x] **Step 3: Implement the operational UI**
 
 Use an unframed page layout with a constrained work area. The dashboard must show summary metrics, filters, and a stable table; the assistant panel must render read responses separately from action previews. Do not add tutorial copy or nested cards.
 
-- [ ] **Step 4: Run frontend tests, type checks, and production build**
+- [x] **Step 4: Run frontend tests, type checks, and production build**
 
 Run: `rtk proxy npm test -- --run`
 
@@ -520,7 +520,7 @@ Run: `rtk proxy npm run build`
 
 Expected: PASS and `frontend/dist/index.html` exists.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add frontend
