@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ApiError, type JobHuntApi } from "../api/client";
 import type { ActionDraft, ActionExecution } from "../api/types";
+import { ActionPreview } from "./ActionPreview";
 import { AssistantPanel } from "./AssistantPanel";
 
 const draft: ActionDraft = {
@@ -129,5 +130,161 @@ describe("AssistantPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("请关闭 WPS 后重试");
     expect(screen.getByText("变更预览")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "确认写入" })).toBeEnabled();
+  });
+
+  it("answers a weekly count question locally without proposing a write", async () => {
+    const today = new Date();
+    const localDate = (value: Date) => {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, "0");
+      const day = String(value.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const listApplications = vi.fn().mockResolvedValue([
+      { id: "1", company: "同一公司", role: "Agent", applied_date: localDate(today) },
+      { id: "2", company: "同一公司", role: "LLM", applied_date: localDate(today) },
+    ]);
+    const jobApi = api({ listApplications });
+    const user = userEvent.setup();
+    render(<AssistantPanel api={jobApi} />);
+
+    await user.type(screen.getByRole("textbox", { name: "输入投递操作" }), "本周投了多少家？");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText(/近 7 日共投递 2 个岗位，涉及 1 家公司/)).toBeInTheDocument();
+    expect(jobApi.proposeAction).not.toHaveBeenCalled();
+    expect(listApplications).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("变更预览")).not.toBeInTheDocument();
+  });
+
+  it("answers pending-interview and recent-interview questions from local data", async () => {
+    const listApplications = vi.fn().mockResolvedValue([
+      {
+        id: "1",
+        company: "候选科技",
+        role: "Agent 工程师",
+        applied_date: null,
+        location: "杭州",
+        status: "已投递",
+        next_step: "技术一面",
+        next_time: null,
+        job_url: null,
+        notes: null,
+      },
+    ]);
+    const listInterviews = vi.fn().mockResolvedValue([
+      {
+        id: "i-1",
+        company: "面试科技",
+        round_name: "技术二面",
+        result: "待反馈",
+        created_at: "2026-09-10T10:00:00+08:00",
+      },
+    ]);
+    const jobApi = api({ listApplications, listInterviews });
+    const user = userEvent.setup();
+    render(<AssistantPanel api={jobApi} />);
+
+    const input = screen.getByRole("textbox", { name: "输入投递操作" });
+    await user.type(input, "有哪些待面试岗位？");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText(/候选科技 · Agent 工程师/)).toBeInTheDocument();
+
+    await user.type(input, "最近面经是什么？");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText(/面试科技 · 技术二面 · 待反馈/)).toBeInTheDocument();
+    expect(jobApi.proposeAction).not.toHaveBeenCalled();
+  });
+
+  it("returns a normal local-mode response for an unsupported read question", async () => {
+    const jobApi = api();
+    const user = userEvent.setup();
+    render(<AssistantPanel api={jobApi} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "输入投递操作" }),
+      "我应该怎么准备系统设计？",
+    );
+    await user.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText(/当前无模型模式暂不支持这个查询/)).toBeInTheDocument();
+    expect(jobApi.proposeAction).not.toHaveBeenCalled();
+  });
+});
+
+describe("ActionPreview", () => {
+  it("edits a nested application patch and shows its previous values", async () => {
+    const onModify = vi.fn().mockResolvedValue(undefined);
+    const updateDraft: ActionDraft = {
+      ...draft,
+      action: "update_application",
+      payload: { application_id: "app-1", patch: { status: "已投递" } },
+      before: { status: "待投递" },
+    };
+    const user = userEvent.setup();
+    render(
+      <ActionPreview
+        draft={updateDraft}
+        onModify={onModify}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Excel 投递表")).toBeInTheDocument();
+    expect(screen.getByText("远程发送：无")).toBeInTheDocument();
+    expect(screen.getByLabelText("投递记录 ID")).toHaveValue("app-1");
+    expect(screen.getByLabelText("投递记录 ID")).toHaveAttribute("readonly");
+    expect(screen.getByRole("region", { name: "变更前" })).toHaveTextContent("待投递");
+    const status = screen.getByRole("textbox", { name: "状态" });
+    await user.clear(status);
+    await user.type(status, "技术一面");
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+
+    expect(onModify).toHaveBeenCalledWith({
+      application_id: "app-1",
+      patch: { status: "技术一面" },
+    });
+  });
+
+  it("edits interview notes and keeps self score numeric", async () => {
+    const onModify = vi.fn().mockResolvedValue(undefined);
+    const interviewDraft: ActionDraft = {
+      ...draft,
+      action: "save_interview",
+      payload: {
+        application_id: "app-1",
+        company: "面试科技",
+        round_name: "技术一面",
+        raw_notes: "原始记录",
+        scheduled_at: null,
+        format: "远程",
+        result: null,
+        self_score: 7,
+      },
+    };
+    const user = userEvent.setup();
+    render(
+      <ActionPreview
+        draft={interviewDraft}
+        onModify={onModify}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("本地 Markdown")).toBeInTheDocument();
+    expect(screen.getByText("远程发送：无")).toBeInTheDocument();
+    const notes = screen.getByRole("textbox", { name: "面试正文" });
+    await user.clear(notes);
+    await user.type(notes, "补充后的面试记录");
+    const score = screen.getByRole("spinbutton", { name: "自评" });
+    await user.clear(score);
+    await user.type(score, "8");
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+
+    expect(onModify).toHaveBeenCalledWith(
+      expect.objectContaining({ raw_notes: "补充后的面试记录", self_score: 8 }),
+    );
   });
 });

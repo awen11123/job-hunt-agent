@@ -9,6 +9,9 @@ export const CLOSED_STATUS_MARKERS = [
   "放弃",
   "终止",
   "淘汰",
+  "遗憾",
+  "简历挂",
+  "未录用",
 ] as const;
 
 export function isClosedStatus(status: string): boolean {

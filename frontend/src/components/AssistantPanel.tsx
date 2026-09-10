@@ -2,12 +2,56 @@ import { Send } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { ApiError, type JobHuntApi } from "../api/client";
-import type { ActionDraft } from "../api/types";
+import type { ActionDraft, Application, Interview } from "../api/types";
 import { ActionPreview } from "./ActionPreview";
+import { isClosedStatus } from "./ApplicationTable";
+import { isPendingStage } from "./StatusSummary";
 
 interface AssistantPanelProps {
   api: JobHuntApi;
   onApplicationsChanged?: () => void;
+}
+
+const interviewMarkers = ["面试", "一面", "二面", "三面", "终面", "HR面", "AI面"];
+
+function isExplicitApplicationWrite(text: string): boolean {
+  const asksQuestion = /[?？]|多少|几个|几家|哪些|什么|是否|吗|怎么|如何|为何|为什么/.test(
+    text,
+  );
+  return !asksQuestion && /投了|投递了|新投|新增投递|申请了/.test(text);
+}
+
+function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function inLastSevenLocalDays(value: string | null): boolean {
+  if (!value) return false;
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
+  const end = localDateString(today);
+  const startValue = localDateString(start);
+  return value >= startValue && value <= end;
+}
+
+function pendingInterviews(applications: Application[]): Application[] {
+  return applications.filter(
+    (item) =>
+      !isClosedStatus(item.status) && isPendingStage(item, interviewMarkers),
+  );
+}
+
+function latestInterview(interviews: Interview[]): Interview | null {
+  return (
+    [...interviews].sort((left, right) => {
+      const leftDate = left.scheduled_at || left.created_at;
+      const rightDate = right.scheduled_at || right.created_at;
+      return rightDate.localeCompare(leftDate);
+    })[0] || null
+  );
 }
 
 export function AssistantPanel({ api, onApplicationsChanged }: AssistantPanelProps) {
@@ -17,6 +61,35 @@ export function AssistantPanel({ api, onApplicationsChanged }: AssistantPanelPro
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
 
+  const answerRead = async (text: string): Promise<string> => {
+    if (/投递|投了/.test(text) && /本周|近\s*7\s*日|多少|总数|几家|几个/.test(text)) {
+      const all = await api.listApplications();
+      const records = /本周|近\s*7\s*日/.test(text)
+        ? all.filter((item) => inLastSevenLocalDays(item.applied_date))
+        : all;
+      const companies = new Set(
+        records.map((item) => item.company.trim()).filter((company) => company.length > 0),
+      );
+      const range = /本周|近\s*7\s*日/.test(text) ? "近 7 日" : "当前";
+      return `${range}共投递 ${records.length} 个岗位，涉及 ${companies.size} 家公司。`;
+    }
+    if (/待面试|等待面试/.test(text)) {
+      const records = pendingInterviews(await api.listApplications());
+      if (records.length === 0) return "当前没有明确标记为待面试的岗位。";
+      return `待面试岗位：${records
+        .map((item) => `${item.company} · ${item.role}`)
+        .join("；")}。`;
+    }
+    if (/最近.*面经|面经.*最近/.test(text)) {
+      const latest = latestInterview(await api.listInterviews());
+      if (!latest) return "当前还没有面经记录。";
+      return `最近面经：${latest.company} · ${latest.round_name}${
+        latest.result ? ` · ${latest.result}` : ""
+      }。`;
+    }
+    return "当前无模型模式暂不支持这个查询，可以在看板、面经或复盘页直接查看本地数据。";
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const text = input.trim();
@@ -25,8 +98,12 @@ export function AssistantPanel({ api, onApplicationsChanged }: AssistantPanelPro
     setError(null);
     setReceipt(null);
     try {
-      const proposed = await api.proposeAction(text);
-      setDraft(proposed);
+      if (isExplicitApplicationWrite(text)) {
+        const proposed = await api.proposeAction(text);
+        setDraft(proposed);
+      } else {
+        setReceipt(await answerRead(text));
+      }
       setInput("");
     } catch (caught) {
       setError(

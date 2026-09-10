@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, Clock3 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { JobHuntApi } from "../api/client";
 import type { Application, Interview } from "../api/types";
@@ -8,6 +8,25 @@ import { isClosedStatus } from "../components/ApplicationTable";
 interface ReviewViewProps {
   api: JobHuntApi;
   refreshVersion?: number;
+}
+
+function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isInRange(value: string | null, start: string, end: string): boolean {
+  return Boolean(value && value >= start && value <= end);
+}
+
+function interviewDate(interview: Interview): string {
+  return (interview.scheduled_at || interview.created_at).slice(0, 10);
+}
+
+function stageText(application: Application): string {
+  return `${application.status} ${application.next_step || ""}`;
 }
 
 export function ReviewView({ api, refreshVersion = 0 }: ReviewViewProps) {
@@ -37,18 +56,34 @@ export function ReviewView({ api, refreshVersion = 0 }: ReviewViewProps) {
     };
   }, [api, refreshVersion]);
 
-  const statusCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    applications.forEach((application) => {
-      counts.set(application.status, (counts.get(application.status) || 0) + 1);
-    });
-    return Array.from(counts.entries()).sort((left, right) => right[1] - left[1]);
-  }, [applications]);
+  const today = new Date();
+  const todayValue = localDateString(today);
+  const weekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
+  const weekStartValue = localDateString(weekStart);
+  const todayApplications = applications.filter(
+    (item) => item.applied_date === todayValue,
+  ).length;
+  const weekApplications = applications.filter((item) =>
+    isInRange(item.applied_date, weekStartValue, todayValue),
+  ).length;
+  const todayInterviews = interviews.filter(
+    (item) => interviewDate(item) === todayValue,
+  ).length;
+  const weekInterviews = interviews.filter((item) =>
+    isInRange(interviewDate(item), weekStartValue, todayValue),
+  ).length;
   const active = applications.filter((item) => !isClosedStatus(item.status));
   const pendingSync = interviews.filter((item) =>
     ["pending", "failed"].includes(item.sync_status),
   );
   const nextSteps = active.filter((item) => item.next_step).slice(0, 6);
+  const funnel = [
+    ["投递", applications.length],
+    ["测评", active.filter((item) => /测评|笔试/.test(stageText(item))).length],
+    ["面试", active.filter((item) => /面试|一面|二面|三面|终面|HR面|AI面/.test(stageText(item))).length],
+    ["Offer", active.filter((item) => /offer|录用/i.test(stageText(item))).length],
+    ["结束", applications.length - active.length],
+  ] as const;
 
   return (
     <div className="view-content review-view">
@@ -64,34 +99,45 @@ export function ReviewView({ api, refreshVersion = 0 }: ReviewViewProps) {
         <p className="error-state" role="alert">复盘数据加载失败。</p>
       ) : (
         <div className="review-grid">
-          <section className="review-section" aria-labelledby="review-overview">
-            <h2 id="review-overview">流程概况</h2>
-            <dl className="review-stats">
-              <div><dt>有效流程</dt><dd>{active.length}</dd></div>
-              <div><dt>面经记录</dt><dd>{interviews.length}</dd></div>
-              <div><dt>待同步</dt><dd>{pendingSync.length}</dd></div>
-            </dl>
+          <section className="review-section" aria-label="日复盘">
+            <h2>日复盘</h2>
+            <div className="review-lines">
+              <p><span>今日新增投递</span><strong>{todayApplications}</strong></p>
+              <p><span>今日面试</span><strong>{todayInterviews}</strong></p>
+            </div>
           </section>
-          <section className="review-section" aria-labelledby="review-statuses">
-            <h2 id="review-statuses">状态分布</h2>
-            {statusCounts.length === 0 ? (
-              <p className="muted-text">暂无状态数据</p>
-            ) : (
-              <ul className="distribution-list">
-                {statusCounts.map(([name, count]) => (
-                  <li key={name}><span>{name}</span><strong>{count}</strong></li>
-                ))}
-              </ul>
-            )}
+
+          <section className="review-section" aria-label="周复盘">
+            <h2>周复盘</h2>
+            <div className="review-lines">
+              <p><span>近 7 日投递</span><strong>{weekApplications}</strong></p>
+              <p><span>近 7 日面试</span><strong>{weekInterviews}</strong></p>
+            </div>
           </section>
-          <section className="review-section review-todos" aria-labelledby="review-todos">
-            <h2 id="review-todos">当前待办</h2>
+
+          <section className="review-section" aria-label="流程漏斗">
+            <h2>流程漏斗</h2>
+            <p className="muted-text">当前节点计数，不代表历史转化率</p>
+            <ul className="distribution-list">
+              {funnel.map(([label, count]) => (
+                <li key={label} aria-label={`${label} ${count}`}>
+                  <span>{label}</span><strong>{count}</strong>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="review-section review-todos" aria-label="当前待办">
+            <h2>当前待办</h2>
             {nextSteps.length === 0 && pendingSync.length === 0 ? (
               <p className="todo-line"><CheckCircle2 size={17} />暂无明确待办</p>
             ) : (
               <ul>
                 {nextSteps.map((item) => (
-                  <li key={item.id}><Clock3 size={17} /><span>{item.company}：{item.next_step}</span></li>
+                  <li key={item.id}>
+                    <Clock3 size={17} />
+                    <span>{item.company}：{item.next_step}</span>
+                  </li>
                 ))}
                 {pendingSync.length > 0 && (
                   <li><AlertCircle size={17} /><span>{pendingSync.length} 条面经等待同步</span></li>

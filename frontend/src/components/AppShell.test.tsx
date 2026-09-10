@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobHuntApi } from "../api/client";
 import type { Application, Interview, LocalConfig } from "../api/types";
 import { AppShell } from "./AppShell";
+import { StatusSummary } from "./StatusSummary";
 
 const applications: Application[] = [
   {
@@ -122,14 +123,53 @@ describe("AppShell", () => {
     expect(within(panel).queryByRole("region", { name: "已结束流程" })).not.toBeInTheDocument();
   });
 
+  it("recognizes every closed status used by the real tracker", async () => {
+    const closedApplications = ["遗憾", "简历挂", "未录用"].map((status, index) => ({
+      ...applications[0],
+      id: `closed-${index}`,
+      company: `${status}公司`,
+      status,
+    }));
+    render(
+      <AppShell
+        api={api({ listApplications: vi.fn().mockResolvedValue(closedApplications) })}
+      />,
+    );
+    const panel = screen.getByRole("tabpanel", { name: "投递看板" });
+    const closed = await within(panel).findByRole("region", { name: "已结束流程" });
+
+    expect(within(closed).getByText("遗憾公司")).toBeInTheDocument();
+    expect(within(closed).getByText("简历挂公司")).toBeInTheDocument();
+    expect(within(closed).getByText("未录用公司")).toBeInTheDocument();
+    expect(within(panel).queryByRole("region", { name: "进行中流程" })).not.toBeInTheDocument();
+  });
+
   it("shows honest summary values from loaded records", async () => {
     render(<AppShell api={api()} />);
     const summary = await screen.findByRole("region", { name: "投递概览" });
 
     expect(within(summary).getByLabelText("总投递 3")).toBeInTheDocument();
     expect(within(summary).getByLabelText("进行中 2")).toBeInTheDocument();
-    expect(within(summary).getByLabelText("面试中 1")).toBeInTheDocument();
+    expect(within(summary).getByLabelText("待测评 0")).toBeInTheDocument();
+    expect(within(summary).getByLabelText("待面试 0")).toBeInTheDocument();
     expect(within(summary).getByLabelText("已结束 1")).toBeInTheDocument();
+  });
+
+  it("counts pending assessment and interview without counting completed stages", () => {
+    const records: Application[] = [
+      { ...applications[0], id: "assessment", status: "已投递", next_step: "在线测评" },
+      { ...applications[0], id: "assessment-done", status: "笔试完成", next_step: "等待结果" },
+      { ...applications[0], id: "interview", status: "已投递", next_step: "技术一面" },
+      { ...applications[0], id: "interview-done", status: "AI面试完成", next_step: "等待结果" },
+    ];
+
+    render(<StatusSummary applications={records} />);
+
+    expect(screen.getByLabelText("总投递 4")).toBeInTheDocument();
+    expect(screen.getByLabelText("进行中 4")).toBeInTheDocument();
+    expect(screen.getByLabelText("待测评 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("待面试 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("已结束 0")).toBeInTheDocument();
   });
 
   it("shows empty and error states", async () => {
@@ -170,5 +210,40 @@ describe("AppShell", () => {
 
     expect(saveConfig).toHaveBeenCalledWith({ ...config, model_enabled: true });
     expect(await screen.findByText("设置已保存")).toBeInTheDocument();
+  });
+
+  it("shows daily, seven-day, funnel, and todo review sections", async () => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const localDate = (value: Date) => {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, "0");
+      const day = String(value.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const datedApplications = applications.map((item, index) => ({
+      ...item,
+      applied_date: localDate(index === 0 ? today : yesterday),
+    }));
+    const user = userEvent.setup();
+    render(
+      <AppShell
+        api={api({ listApplications: vi.fn().mockResolvedValue(datedApplications) })}
+      />,
+    );
+    await user.click(screen.getByRole("tab", { name: "复盘" }));
+    const panel = screen.getByRole("tabpanel", { name: "复盘" });
+
+    expect(await within(panel).findByRole("region", { name: "日复盘" })).toHaveTextContent(
+      "今日新增投递1",
+    );
+    expect(within(panel).getByRole("region", { name: "周复盘" })).toHaveTextContent(
+      "近 7 日投递3",
+    );
+    expect(within(panel).getByRole("region", { name: "流程漏斗" })).toHaveTextContent(
+      "面试1",
+    );
+    expect(within(panel).getByRole("region", { name: "当前待办" })).toBeInTheDocument();
   });
 });

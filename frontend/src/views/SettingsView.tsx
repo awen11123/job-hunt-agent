@@ -97,7 +97,7 @@ export function SettingsView({ api }: SettingsViewProps) {
           </section>
           <section aria-labelledby="optional-services-heading">
             <h2 id="optional-services-heading">可选服务</h2>
-            <label className="toggle-row">
+            <label className="toggle-field">
               <span><strong>启用 Notion</strong><small>同步面经页面</small></span>
               <input
                 type="checkbox"
@@ -108,7 +108,7 @@ export function SettingsView({ api }: SettingsViewProps) {
                 }
               />
             </label>
-            <label className="toggle-row">
+            <label className="toggle-field">
               <span><strong>启用模型</strong><small>使用已配置的模型服务</small></span>
               <input
                 type="checkbox"
@@ -125,7 +125,7 @@ export function SettingsView({ api }: SettingsViewProps) {
               <Save size={16} aria-hidden="true" />
               {saving ? "保存中..." : "保存设置"}
             </button>
-            {message && <span className="success-message" role="status">{message}</span>}
+            {message && <span className="success-text" role="status">{message}</span>}
             {error && <span className="inline-error" role="alert">{error}</span>}
           </div>
         </form>
