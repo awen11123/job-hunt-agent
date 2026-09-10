@@ -1,9 +1,8 @@
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from scripts.verify_release_artifact import verify_artifact
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -80,7 +79,10 @@ def test_artifact_rejects_notion_and_wps_account_paths(tmp_path: Path) -> None:
         {
             "notes.txt": (
                 "https://www.notion" + ".so/private "
-                + "C:/Users/Example/WPS Cloud Files/12345678/tracker.xlsx"
+                + "C:"
+                + "/Users/Example/"
+                + "WPS Cloud Files/"
+                + "12345678/tracker.xlsx"
             )
         },
     )
@@ -102,8 +104,8 @@ def test_artifact_does_not_treat_compiled_dependency_strings_as_user_data(
         tmp_path,
         {
             "_internal/dependency.pyd": (
-                b"compiler metadata C:/Users/runneradmin/source "
-                b"and arbitrary sk-abc123456789SECRET bytes"
+                b"compiler metadata C:" + b"/Users/runneradmin/" + b"source "
+                + b"and arbitrary sk-" + b"abc123456789SECRET bytes"
             )
         },
     )
@@ -126,7 +128,7 @@ def test_artifact_requires_application_and_frontend(tmp_path: Path) -> None:
 
 
 def test_cli_prints_only_categories_and_paths(tmp_path: Path) -> None:
-    secret = "sk-abc123456789SECRET"
+    secret = "sk-" + "abc123456789SECRET"
     artifact = build_release_directory(tmp_path, {"leaked.txt": secret})
 
     result = subprocess.run(

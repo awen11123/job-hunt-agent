@@ -394,12 +394,12 @@ def build_api_router(services: WebServices) -> APIRouter:
             raise UnsupportedActionError("Planner returned an unsupported result")
         except UnsupportedInputError:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=_detail("unsupported_input", "暂时无法安全生成写入预览。"),
             ) from None
         except (InvalidActionPlanError, UnsupportedActionError):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=_detail("unsupported_action", "模型未能生成可安全执行的操作。"),
             ) from None
         except LLMProviderError:
@@ -435,7 +435,7 @@ def build_api_router(services: WebServices) -> APIRouter:
             ) from None
         except ValidationError:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=_detail(
                     "invalid_action_payload",
                     "变更内容无效，请检查必填字段和字段格式。",
@@ -544,7 +544,7 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(_request, _error) -> JSONResponse:
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": _detail("validation_error", "请求参数无效。")},
         )
 

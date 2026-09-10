@@ -10,12 +10,13 @@ import sys
 import time
 import traceback
 import webbrowser
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Thread, current_thread, main_thread
 from types import FrameType
-from typing import BinaryIO, Callable, Protocol
+from typing import BinaryIO, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
@@ -26,7 +27,6 @@ from job_hunt_agent.local_app.config import LocalConfigStore
 from job_hunt_agent.local_app.paths import app_data_root
 from job_hunt_agent.web.app import create_app
 from job_hunt_agent.web.resources import resource_root
-
 
 LOOPBACK_HOST = "127.0.0.1"
 

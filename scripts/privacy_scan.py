@@ -1,5 +1,5 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -7,7 +7,6 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from job_hunt_agent.privacy import PrivacyFinding, scan_text_for_private_leaks  # noqa: E402
-
 
 SKIPPED_DIR_NAMES = {
     "__pycache__",

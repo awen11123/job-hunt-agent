@@ -2,7 +2,6 @@ from pathlib import Path
 
 import yaml
 
-
 WORKFLOW_PATH = Path(".github/workflows/windows-release.yml")
 SMOKE_SCRIPT_PATH = Path("scripts/smoke_windows_install.ps1")
 

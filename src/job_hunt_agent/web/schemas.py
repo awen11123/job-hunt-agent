@@ -40,13 +40,27 @@ class ModelSettingsRequest(_ApiRequest):
     provider: ProviderName
     base_url: HttpUrl | None = None
     model: str | None = Field(default=None, min_length=1)
-    api_key: str | None = Field(default=None, min_length=1, repr=False)
+    api_key: str | None = Field(default=None, min_length=1)
+
+    def __repr_args__(self):
+        return [
+            (name, value)
+            for name, value in super().__repr_args__()
+            if name != "api_key"
+        ]
 
 
 class NotionSettingsRequest(_ApiRequest):
     enabled: bool
-    token: str | None = Field(default=None, min_length=1, repr=False)
-    interviews_database_id: str | None = Field(default=None, min_length=1, repr=False)
+    token: str | None = Field(default=None, min_length=1)
+    interviews_database_id: str | None = Field(default=None, min_length=1)
+
+    def __repr_args__(self):
+        return [
+            (name, value)
+            for name, value in super().__repr_args__()
+            if name not in {"token", "interviews_database_id"}
+        ]
 
 
 class ModelSettingsView(BaseModel):

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from job_hunt_agent.web.launcher import DefaultBrowser, LOOPBACK_HOST, WindowsLauncher
+from job_hunt_agent.web.launcher import LOOPBACK_HOST, DefaultBrowser, WindowsLauncher
 
 
 def build_frontend(tmp_path: Path) -> Path:

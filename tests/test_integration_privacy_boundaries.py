@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from job_hunt_agent.local_app.config import LocalAppConfig, LocalConfigStore
 from job_hunt_agent.web import create_app
-
+from job_hunt_agent.web.schemas import ModelSettingsRequest, NotionSettingsRequest
 
 SESSION_TOKEN = "privacy-test-session"
 MODEL_CREDENTIAL = "MODEL_CREDENTIAL_SENTINEL_42"
@@ -25,6 +25,23 @@ class RecordingSecretStore:
 
     def delete(self, reference: str) -> None:
         self.values.pop(reference, None)
+
+
+def test_integration_request_representations_hide_credentials() -> None:
+    model_request = ModelSettingsRequest(
+        enabled=True,
+        provider="deepseek",
+        api_key=MODEL_CREDENTIAL,
+    )
+    notion_request = NotionSettingsRequest(
+        enabled=True,
+        token=NOTION_CREDENTIAL,
+        interviews_database_id="synthetic-database-id",
+    )
+
+    assert MODEL_CREDENTIAL not in repr(model_request)
+    assert NOTION_CREDENTIAL not in repr(notion_request)
+    assert "synthetic-database-id" not in repr(notion_request)
 
 
 def test_credentials_stay_out_of_local_artifacts_api_responses_and_logs(

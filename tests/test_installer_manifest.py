@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 INSTALLER_SCRIPT = Path("packaging/installer.iss")
 BUILD_SCRIPT = Path("scripts/build_windows_installer.ps1")
 
