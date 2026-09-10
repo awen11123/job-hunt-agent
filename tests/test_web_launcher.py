@@ -386,7 +386,7 @@ def test_frontend_dist_path_supports_source_and_pyinstaller_layout(
     tmp_path: Path,
 ) -> None:
     monkeypatch.delattr(sys, "_MEIPASS", raising=False)
-    assert frontend_dist_path().as_posix().endswith("/frontend/dist")
+    assert frontend_dist_path().name in {"dist", "web_static"}
 
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
     assert frontend_dist_path() == tmp_path / "web_static"

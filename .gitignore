@@ -11,6 +11,7 @@ node_modules/
 coverage/
 *.tsbuildinfo
 *.egg-info/
+src/job_hunt_agent/web_static/
 private_exports/
 notion_cache.json
 .superpowers/

@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from job_hunt_agent.local_app.config import LocalConfigStore
 from job_hunt_agent.local_app.paths import app_data_root
 from job_hunt_agent.web.app import create_app
+from job_hunt_agent.web.resources import resource_root
 
 
 LOOPBACK_HOST = "127.0.0.1"
@@ -176,9 +177,9 @@ class FileInstanceState:
 
 
 def frontend_dist_path() -> Path:
-    bundled_root = getattr(sys, "_MEIPASS", None)
-    if bundled_root is not None:
-        return Path(bundled_root) / "web_static"
+    packaged_root = resource_root()
+    if getattr(sys, "_MEIPASS", None) is not None or packaged_root.is_dir():
+        return packaged_root
     return Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
 
