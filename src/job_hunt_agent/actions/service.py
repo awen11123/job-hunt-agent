@@ -25,7 +25,9 @@ _WRITE_REQUEST_PATTERN = re.compile(
     r"^(?:今天|昨天|明天)?\s*(?:我)?\s*(?:已)?\s*"
     r"(?:投了|投递了|投递|申请了|申请|待投|准备投)"
 )
-_QUESTION_PATTERN = re.compile(r"(?:多少家|投(?:了|递)?多少|投(?:了|递)?几家|有哪些|[?？])")
+_QUESTION_PATTERN = re.compile(
+    r"(?:哪个|哪些|什么|吗|是否|多少|怎么|如何|为何|为什么|[?？])"
+)
 _STAGE_STATUS = {
     RecruitingStage.TO_APPLY: "待投递",
     RecruitingStage.APPLIED: "已投递",
@@ -38,6 +40,30 @@ _STAGE_STATUS = {
 
 class UnsupportedInputError(ValueError):
     """Raised when free-form text cannot safely become a write draft."""
+
+
+class ActionExecutionError(RuntimeError):
+    """Safe public error raised when a confirmed action cannot be executed."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
+
+
+_EXECUTION_ERRORS: dict[ActionName, tuple[str, str]] = {
+    "create_application": (
+        "create_application_failed",
+        "Application creation failed.",
+    ),
+    "update_application": (
+        "update_application_failed",
+        "Application update failed.",
+    ),
+    "save_interview": (
+        "save_interview_failed",
+        "Interview save failed.",
+    ),
+}
 
 
 def _utc_now() -> datetime:
@@ -95,7 +121,12 @@ class ActionDraftService:
         before: Mapping[str, Any] | None = None,
         operation_id: str | None = None,
     ) -> ActionDraft:
-        requested_operation_id = operation_id or str(uuid.uuid4())
+        if operation_id is None:
+            requested_operation_id = str(uuid.uuid4())
+        else:
+            requested_operation_id = operation_id.strip()
+            if not requested_operation_id:
+                raise ValueError("operation_id must not be blank")
         with self._lock:
             existing_id = self._draft_ids_by_operation.get(requested_operation_id)
             if existing_id is not None:
@@ -163,7 +194,11 @@ class ActionDraftService:
             self._require_matching_token(draft, confirmation_token)
 
             executed_at = self._now()
-            receipt = self._execute(draft)
+            try:
+                receipt = self._execute(draft)
+            except Exception:
+                code, message = _EXECUTION_ERRORS[draft.action]
+                raise ActionExecutionError(code, message) from None
             confirmed = draft.model_copy(update={"status": "confirmed"}, deep=True)
             execution = ActionExecution(
                 draft=confirmed,

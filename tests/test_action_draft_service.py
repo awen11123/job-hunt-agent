@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 from job_hunt_agent.actions import (
     ActionDraft,
     ActionDraftService,
+    ActionExecutionError,
     UnsupportedInputError,
 )
 from job_hunt_agent.excel import TrackerApplicationDraft, TrackerApplicationPatch
@@ -61,9 +63,14 @@ class RecordingExcelRepository:
 class RecordingInterviewStore:
     def __init__(self) -> None:
         self.saved: list[tuple[LocalInterviewDraft, str]] = []
+        self.failure: Exception | None = None
 
     def save(self, draft: LocalInterviewDraft, operation_id: str):
         self.saved.append((draft, operation_id))
+        if self.failure is not None:
+            failure = self.failure
+            self.failure = None
+            raise failure
         return SimpleNamespace(id="interview-created")
 
 
@@ -175,6 +182,32 @@ def test_propose_application_rejects_unparseable_or_read_only_text(text: str) ->
     assert repository.created == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "今天投了哪个公司的 Agent 工程师",
+        "今天投了哪些公司的 Agent 工程师",
+        "今天投了什么公司的 Agent 工程师",
+        "今天投了示例科技的 Agent 工程师吗",
+        "今天是否投了示例科技的 Agent 工程师",
+        "今天投了多少家公司的 Agent 工程师",
+        "今天怎么投了示例科技的 Agent 工程师",
+        "今天如何投了示例科技的 Agent 工程师",
+        "今天为何投了示例科技的 Agent 工程师",
+        "今天为什么投了示例科技的 Agent 工程师",
+        "今天投了示例科技的 Agent 工程师?",
+        "今天投了示例科技的 Agent 工程师？",
+    ],
+)
+def test_propose_application_rejects_question_like_write_text(text: str) -> None:
+    service, repository, _ = configured_service()
+
+    with pytest.raises(UnsupportedInputError):
+        service.propose_application(text)
+
+    assert repository.created == []
+
+
 def test_propose_is_idempotent_by_operation_id() -> None:
     service, _, _ = configured_service(tokens=("only-token",))
 
@@ -191,6 +224,36 @@ def test_propose_is_idempotent_by_operation_id() -> None:
 
     assert second == first
     assert second.action == "create_application"
+
+
+def test_operation_id_is_normalized_before_idempotency_lookup() -> None:
+    service, _, _ = configured_service(tokens=("only-token",))
+
+    first = service.propose(
+        "create_application",
+        application_payload(),
+        operation_id="  same-operation  ",
+    )
+    second = service.propose(
+        "save_interview",
+        interview_payload(),
+        operation_id="same-operation",
+    )
+
+    assert first.operation_id == "same-operation"
+    assert second == first
+
+
+@pytest.mark.parametrize("operation_id", ["", "   "])
+def test_explicit_blank_operation_id_is_rejected(operation_id: str) -> None:
+    service, _, _ = configured_service()
+
+    with pytest.raises(ValueError, match="operation_id"):
+        service.propose(
+            "create_application",
+            application_payload(),
+            operation_id=operation_id,
+        )
 
 
 def test_modify_revalidates_payload_and_refreshes_only_token() -> None:
@@ -265,13 +328,82 @@ def test_repository_failure_keeps_draft_pending_and_allows_same_token_retry() ->
     repository.failure = OSError("workbook is busy")
     proposed = service.propose("create_application", application_payload())
 
-    with pytest.raises(OSError, match="workbook is busy"):
+    with pytest.raises(ActionExecutionError) as caught:
         service.confirm(proposed.id, proposed.confirmation_token)
 
+    assert caught.value.code == "create_application_failed"
+    assert str(caught.value) == "Application creation failed."
     assert service.get(proposed.id).status == "pending"
     execution = service.confirm(proposed.id, proposed.confirmation_token)
     assert execution.receipt.status == "created"
     assert len(repository.created) == 2
+
+
+@pytest.mark.parametrize(
+    ("action", "payload", "failure", "expected_code", "expected_message"),
+    [
+        (
+            "create_application",
+            application_payload(),
+            KeyError("create-sensitive-sentinel"),
+            "create_application_failed",
+            "Application creation failed.",
+        ),
+        (
+            "update_application",
+            {"application_id": "sensitive-app-id", "patch": {"status": "面试"}},
+            ValueError("update-sensitive-sentinel"),
+            "update_application_failed",
+            "Application update failed.",
+        ),
+        (
+            "save_interview",
+            interview_payload(raw_notes="sensitive raw interview notes"),
+            RuntimeError("interview-sensitive-sentinel"),
+            "save_interview_failed",
+            "Interview save failed.",
+        ),
+    ],
+)
+def test_execution_failures_are_safe_and_retryable(
+    action: str,
+    payload: dict[str, object],
+    failure: Exception,
+    expected_code: str,
+    expected_message: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service, repository, interview_store = configured_service()
+    proposed = service.propose(action, payload)
+    if action == "save_interview":
+        interview_store.failure = failure
+    else:
+        repository.failure = failure
+
+    with pytest.raises(ActionExecutionError) as caught:
+        service.confirm(proposed.id, proposed.confirmation_token)
+
+    public_error = caught.value
+    sentinel = str(failure)
+    rendered_traceback = "".join(
+        traceback.format_exception(caught.type, caught.value, caught.tb)
+    )
+    assert public_error.code == expected_code
+    assert str(public_error) == expected_message
+    assert sentinel not in repr(public_error)
+    assert all(sentinel not in str(argument) for argument in public_error.args)
+    assert public_error.__cause__ is None
+    assert public_error.__suppress_context__ is True
+    assert sentinel not in rendered_traceback
+    assert sentinel not in caplog.text
+    pending = service.get(proposed.id)
+    assert pending.status == "pending"
+    assert pending.confirmation_token == proposed.confirmation_token
+
+    execution = service.confirm(proposed.id, proposed.confirmation_token)
+
+    assert execution.receipt.status in {"created", "updated"}
+    assert sentinel not in execution.receipt.message
 
 
 def test_confirmation_executes_once_and_returns_same_execution() -> None:
