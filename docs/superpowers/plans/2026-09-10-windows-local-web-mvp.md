@@ -341,7 +341,7 @@ rtk proxy git commit -m "feat: add confirmed action drafts"
 - Create: `src/job_hunt_agent/web/schemas.py`
 - Create: `tests/test_web_api.py`
 
-- [ ] **Step 1: Add FastAPI and Uvicorn dependencies**
+- [x] **Step 1: Add FastAPI and Uvicorn dependencies**
 
 ```toml
 dependencies = [
@@ -355,7 +355,7 @@ dependencies = [
 ]
 ```
 
-- [ ] **Step 2: Write failing API tests**
+- [x] **Step 2: Write failing API tests**
 
 ```python
 def test_health_and_application_list(client: TestClient) -> None:
@@ -378,7 +378,7 @@ def test_chat_write_returns_preview_then_requires_confirmation(client: TestClien
 
 Add tests that write endpoints reject missing session tokens, invalid Excel configuration returns `409`, and cancelled drafts cannot execute.
 
-- [ ] **Step 3: Implement the application factory**
+- [x] **Step 3: Implement the application factory**
 
 ```python
 def create_app(config_store: LocalConfigStore, session_token: str | None = None) -> FastAPI:
@@ -390,13 +390,13 @@ def create_app(config_store: LocalConfigStore, session_token: str | None = None)
 
 Expose `/api/health`, `/api/config`, `/api/applications`, `/api/interviews`, `/api/actions/propose`, `/api/actions/{id}`, `/confirm`, and `/cancel`. All mutation routes require `X-Job-Hunt-Session`.
 
-- [ ] **Step 4: Run API and full Python tests**
+- [x] **Step 4: Run API and full Python tests**
 
 Run: `rtk proxy python -X utf8 -m pytest -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add pyproject.toml src/job_hunt_agent/web tests/test_web_api.py
