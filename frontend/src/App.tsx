@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import {
   BarChart3,
   Bot,
@@ -35,9 +35,33 @@ interface AppProps {
 export default function App({ api }: AppProps) {
   const [activeTab, setActiveTab] = useState<TabId>("applications");
   const [assistantOpen, setAssistantOpen] = useState(true);
-  const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   void api;
+
+  const moveToTab = (index: number) => {
+    const target = tabs[index];
+    setActiveTab(target.id);
+    tabRefs.current[index]?.focus();
+  };
+
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let targetIndex: number | null = null;
+    if (event.key === "ArrowRight") {
+      targetIndex = (index + 1) % tabs.length;
+    } else if (event.key === "ArrowLeft") {
+      targetIndex = (index - 1 + tabs.length) % tabs.length;
+    } else if (event.key === "Home") {
+      targetIndex = 0;
+    } else if (event.key === "End") {
+      targetIndex = tabs.length - 1;
+    }
+
+    if (targetIndex !== null) {
+      event.preventDefault();
+      moveToTab(targetIndex);
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -72,8 +96,8 @@ export default function App({ api }: AppProps) {
       </header>
 
       <nav className="tabbar" aria-label="主要功能">
-        <div role="tablist" aria-label="工作区">
-          {tabs.map((tab) => {
+        <div role="tablist" aria-label="工作区" aria-orientation="horizontal">
+          {tabs.map((tab, index) => {
             const Icon = tab.icon;
             const selected = tab.id === activeTab;
             return (
@@ -85,7 +109,11 @@ export default function App({ api }: AppProps) {
                 aria-selected={selected}
                 aria-controls={`panel-${tab.id}`}
                 tabIndex={selected ? 0 : -1}
+                ref={(element) => {
+                  tabRefs.current[index] = element;
+                }}
                 onClick={() => setActiveTab(tab.id)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
               >
                 <Icon size={17} aria-hidden="true" />
                 {tab.label}
@@ -96,20 +124,25 @@ export default function App({ api }: AppProps) {
       </nav>
 
       <div className={assistantOpen ? "work-layout" : "work-layout assistant-closed"}>
-        <main
-          id={`panel-${active.id}`}
-          role="tabpanel"
-          aria-labelledby={`tab-${active.id}`}
-          className="main-workspace"
-        >
-          <div className="workspace-heading">
-            <h1>{active.label}</h1>
-          </div>
-          <div className="workspace-placeholder" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
+        <main className="main-workspace">
+          {tabs.map((tab) => (
+            <section
+              key={tab.id}
+              id={`panel-${tab.id}`}
+              role="tabpanel"
+              aria-labelledby={`tab-${tab.id}`}
+              hidden={tab.id !== activeTab}
+            >
+              <div className="workspace-heading">
+                <h1>{tab.label}</h1>
+              </div>
+              <div className="workspace-placeholder" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+            </section>
+          ))}
         </main>
 
         {assistantOpen && (
