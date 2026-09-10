@@ -3,7 +3,9 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from job_hunt_agent.web.launcher import LOOPBACK_HOST, WindowsLauncher
+import pytest
+
+from job_hunt_agent.web.launcher import DefaultBrowser, LOOPBACK_HOST, WindowsLauncher
 
 
 def build_frontend(tmp_path: Path) -> Path:
@@ -71,6 +73,44 @@ class FakeBrowser:
             self.events.append("browser-open")
         self.urls.append(url)
         return True
+
+
+class FailingServer(FakeServer):
+    def run(self) -> None:
+        raise ValueError("packaged server failure")
+
+
+def test_default_browser_can_be_disabled_for_automated_smoke_tests(
+    monkeypatch,
+) -> None:
+    opened: list[str] = []
+    monkeypatch.setenv("JOB_HUNT_AGENT_SKIP_BROWSER", "1")
+    monkeypatch.setattr(
+        "job_hunt_agent.web.launcher.webbrowser.open",
+        lambda url: opened.append(url) or True,
+    )
+
+    assert DefaultBrowser().open("http://127.0.0.1:43127/") is True
+    assert opened == []
+
+
+def test_launcher_preserves_background_server_startup_error(tmp_path: Path) -> None:
+    launcher = WindowsLauncher(
+        instance_state=FakeInstanceState(acquired=True),
+        server=FailingServer(),
+        browser=FakeBrowser(),
+        static_dir=build_frontend(tmp_path),
+        port_selector=lambda _host: 43127,
+        health_probe=lambda _url: False,
+        startup_timeout=1,
+        poll_interval=0,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        launcher.start()
+
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert "packaged server failure" in str(caught.value.__cause__)
 
 
 def test_second_launcher_reuses_healthy_instance(tmp_path: Path) -> None:

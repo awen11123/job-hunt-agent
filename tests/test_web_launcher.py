@@ -6,12 +6,17 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from job_hunt_agent.local_app.config import LocalAppConfig, LocalConfigStore
 from job_hunt_agent.web import create_app
-from job_hunt_agent.web.launcher import LocalLauncher, frontend_dist_path
+from job_hunt_agent.web.launcher import (
+    LocalLauncher,
+    UvicornServerController,
+    frontend_dist_path,
+)
 
 
 HEADERS = (
@@ -25,6 +30,29 @@ HEADERS = (
     "岗位链接",
     "备注",
 )
+
+
+def test_embedded_uvicorn_does_not_require_console_streams(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeConfig:
+        def __init__(self, _app, **kwargs) -> None:
+            captured.update(kwargs)
+
+    class FakeUvicornServer:
+        def __init__(self, config) -> None:
+            self.config = config
+
+    monkeypatch.setattr("job_hunt_agent.web.launcher.uvicorn.Config", FakeConfig)
+    monkeypatch.setattr("job_hunt_agent.web.launcher.uvicorn.Server", FakeUvicornServer)
+
+    UvicornServerController().configure(
+        FastAPI(),
+        host="127.0.0.1",
+        port=43127,
+    )
+
+    assert captured["log_config"] is None
 
 
 class _RootTokenParser(HTMLParser):

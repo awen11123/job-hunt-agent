@@ -199,7 +199,7 @@ Run: `rtk proxy python -X utf8 -m pytest -q tests/test_release_artifact.py tests
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add scripts/verify_release_artifact.py scripts/privacy_scan.py tests/test_release_artifact.py
@@ -213,7 +213,7 @@ rtk proxy git commit -m "test: verify release artifact privacy"
 - Create: `scripts/smoke_windows_install.ps1`
 - Create: `tests/test_release_workflow.py`
 
-- [ ] **Step 1: Write failing workflow tests**
+- [x] **Step 1: Write failing workflow tests**
 
 ```python
 def test_release_workflow_runs_all_quality_gates() -> None:
@@ -226,17 +226,17 @@ def test_release_workflow_runs_all_quality_gates() -> None:
     assert "smoke_windows_install.ps1" in commands
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_release_workflow.py`
 
 Expected: FAIL because the workflow does not exist.
 
-- [ ] **Step 3: Implement the release workflow**
+- [x] **Step 3: Implement the release workflow**
 
 Trigger on tags matching `v*`. Use a Windows runner to install Python and Node, run Python and frontend tests, build frontend assets, build PyInstaller output, scan the complete PyInstaller directory, compile the installer only from that verified directory, install it silently, start the application, wait for the local health endpoint, stop it, uninstall it, generate SHA-256, and publish the installer and checksum to GitHub Releases.
 
-- [ ] **Step 4: Run workflow tests and local smoke script**
+- [x] **Step 4: Run workflow tests and local smoke script**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_release_workflow.py`
 

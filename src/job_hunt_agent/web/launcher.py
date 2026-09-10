@@ -8,6 +8,7 @@ import signal
 import socket
 import sys
 import time
+import traceback
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,6 +65,7 @@ class UvicornServerController:
             host=host,
             port=port,
             log_level="warning",
+            log_config=None,
             access_log=False,
         )
         self._server = uvicorn.Server(config)
@@ -80,6 +82,8 @@ class UvicornServerController:
 
 class DefaultBrowser:
     def open(self, url: str) -> bool:
+        if os.environ.get("JOB_HUNT_AGENT_SKIP_BROWSER") == "1":
+            return True
         return webbrowser.open(url)
 
 
@@ -235,6 +239,7 @@ class WindowsLauncher:
         self._poll_interval = poll_interval
         self._port_attempts = port_attempts
         self._server_thread: Thread | None = None
+        self._server_error: BaseException | None = None
         self._owns_instance = False
         self._cleanup_registered = False
 
@@ -302,6 +307,7 @@ class WindowsLauncher:
     def _start_new_instance(self) -> LaunchResult:
         session_token = secrets.token_urlsafe(32)
         for _attempt in range(self._port_attempts):
+            self._server_error = None
             port = self._port_selector(LOOPBACK_HOST)
             app = create_app(
                 LocalConfigStore(self._config_path),
@@ -310,7 +316,7 @@ class WindowsLauncher:
             )
             self._server.configure(app, host=LOOPBACK_HOST, port=port)
             thread = Thread(
-                target=self._server.run,
+                target=self._run_server,
                 name="job-hunt-agent-server",
                 daemon=True,
             )
@@ -322,9 +328,18 @@ class WindowsLauncher:
                 return LaunchResult(url=root_url, started_server=True)
             self._server.stop()
             thread.join(timeout=1)
+            if self._server_error is not None:
+                error = self._server_error
+                raise RuntimeError("Local server failed during startup.") from error
             if thread.is_alive():
                 raise RuntimeError("Local server did not stop after failed startup.")
         raise RuntimeError("Local server failed to become healthy.")
+
+    def _run_server(self) -> None:
+        try:
+            self._server.run()
+        except BaseException as error:
+            self._server_error = error
 
     def _wait_for_existing_instance(self) -> str | None:
         deadline = time.monotonic() + self._startup_timeout
@@ -376,11 +391,32 @@ class WindowsLauncher:
 LocalLauncher = WindowsLauncher
 
 
+def _write_startup_error(error: BaseException, path: Path) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "".join(traceback.format_exception(error)),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
 def main() -> int:
+    error_path = app_data_root() / "startup-error.log"
+    try:
+        error_path.unlink(missing_ok=True)
+    except OSError:
+        pass
     try:
         WindowsLauncher().run()
-    except (OSError, RuntimeError):
-        print("本地应用启动失败，请确认前端已构建且端口可用。", file=sys.stderr)
+    except Exception as error:
+        _write_startup_error(error, error_path)
+        if sys.stderr is not None:
+            print(
+                f"本地应用启动失败，诊断信息已写入：{error_path}",
+                file=sys.stderr,
+            )
         return 1
     return 0
 
