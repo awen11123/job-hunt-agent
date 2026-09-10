@@ -1,9 +1,17 @@
 import type {
   ActionDraft,
   ActionExecution,
+  ActionProposal,
   Application,
+  IntegrationSettings,
   Interview,
   LocalConfig,
+  ModelConnectionResult,
+  ModelSettings,
+  ModelSettingsInput,
+  NotionConnectionResult,
+  NotionSettings,
+  NotionSettingsInput,
 } from "./types";
 
 export interface JobHuntApi {
@@ -11,7 +19,13 @@ export interface JobHuntApi {
   listInterviews(applicationId?: string): Promise<Interview[]>;
   getConfig(): Promise<LocalConfig>;
   saveConfig(config: LocalConfig): Promise<LocalConfig>;
-  proposeAction(text: string): Promise<ActionDraft>;
+  getSettings(): Promise<IntegrationSettings>;
+  saveModelSettings(settings: ModelSettingsInput): Promise<ModelSettings>;
+  testModelSettings(): Promise<ModelConnectionResult>;
+  saveNotionSettings(settings: NotionSettingsInput): Promise<NotionSettings>;
+  testNotionSettings(): Promise<NotionConnectionResult>;
+  syncInterview(id: string): Promise<Interview>;
+  proposeAction(text: string): Promise<ActionProposal>;
   modifyAction(id: string, payload: ActionDraft["payload"]): Promise<ActionDraft>;
   confirmAction(id: string, token: string): Promise<ActionExecution>;
   cancelAction(id: string): Promise<ActionDraft>;
@@ -105,8 +119,49 @@ export class HttpJobHuntApi implements JobHuntApi {
     });
   }
 
-  proposeAction(text: string): Promise<ActionDraft> {
-    return this.request<ActionDraft>("/actions/propose", {
+  getSettings(): Promise<IntegrationSettings> {
+    return this.request<IntegrationSettings>("/settings");
+  }
+
+  saveModelSettings(settings: ModelSettingsInput): Promise<ModelSettings> {
+    return this.request<ModelSettings>("/settings/model", {
+      method: "PUT",
+      headers: { "X-Job-Hunt-Session": this.sessionToken },
+      body: JSON.stringify(settings),
+    });
+  }
+
+  testModelSettings(): Promise<ModelConnectionResult> {
+    return this.request<ModelConnectionResult>("/settings/model/test", {
+      method: "POST",
+      headers: { "X-Job-Hunt-Session": this.sessionToken },
+    });
+  }
+
+  saveNotionSettings(settings: NotionSettingsInput): Promise<NotionSettings> {
+    return this.request<NotionSettings>("/settings/notion", {
+      method: "PUT",
+      headers: { "X-Job-Hunt-Session": this.sessionToken },
+      body: JSON.stringify(settings),
+    });
+  }
+
+  testNotionSettings(): Promise<NotionConnectionResult> {
+    return this.request<NotionConnectionResult>("/settings/notion/test", {
+      method: "POST",
+      headers: { "X-Job-Hunt-Session": this.sessionToken },
+    });
+  }
+
+  syncInterview(id: string): Promise<Interview> {
+    return this.request<Interview>(`/interviews/${encodeURIComponent(id)}/sync`, {
+      method: "POST",
+      headers: { "X-Job-Hunt-Session": this.sessionToken },
+    });
+  }
+
+  proposeAction(text: string): Promise<ActionProposal> {
+    return this.request<ActionProposal>("/actions/propose", {
       method: "POST",
       body: JSON.stringify({ text }),
     });

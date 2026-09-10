@@ -26,6 +26,7 @@ const draft: ActionDraft = {
   confirmation_token: "token-1",
   operation_id: "operation-1",
   expires_at: "2026-09-10T12:00:00+08:00",
+  disclosure: [],
 };
 
 function api(overrides: Partial<JobHuntApi> = {}): JobHuntApi {
@@ -34,6 +35,12 @@ function api(overrides: Partial<JobHuntApi> = {}): JobHuntApi {
     listInterviews: vi.fn().mockResolvedValue([]),
     getConfig: vi.fn(),
     saveConfig: vi.fn(),
+    getSettings: vi.fn(),
+    saveModelSettings: vi.fn(),
+    testModelSettings: vi.fn(),
+    saveNotionSettings: vi.fn(),
+    testNotionSettings: vi.fn(),
+    syncInterview: vi.fn(),
     proposeAction: vi.fn().mockResolvedValue(draft),
     modifyAction: vi.fn().mockResolvedValue(draft),
     confirmAction: vi.fn(),
@@ -234,6 +241,27 @@ describe("AssistantPanel", () => {
     expect(await screen.findByText(/当前无模型模式暂不支持这个查询/)).toBeInTheDocument();
     expect(jobApi.proposeAction).not.toHaveBeenCalled();
   });
+
+  it("renders a model answer without creating a write preview", async () => {
+    const jobApi = api({
+      proposeAction: vi.fn().mockResolvedValue({
+        kind: "message",
+        message: "建议先复盘最近一次技术面试。",
+      }),
+    });
+    const user = userEvent.setup();
+    render(<AssistantPanel api={jobApi} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "输入投递操作" }),
+      "帮我制定面试复盘计划",
+    );
+    await user.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("建议先复盘最近一次技术面试。")).toBeInTheDocument();
+    expect(screen.queryByText("变更预览")).not.toBeInTheDocument();
+    expect(jobApi.confirmAction).not.toHaveBeenCalled();
+  });
 });
 
 describe("ActionPreview", () => {
@@ -310,5 +338,43 @@ describe("ActionPreview", () => {
     expect(onModify).toHaveBeenCalledWith(
       expect.objectContaining({ raw_notes: "补充后的面试记录", self_score: 8 }),
     );
+  });
+
+  it("requires separate consent before confirming remote interview-note disclosure", async () => {
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+    const remoteDraft: ActionDraft = {
+      ...draft,
+      action: "save_interview",
+      payload: {
+        application_id: "app-1",
+        company: "面试科技",
+        round_name: "技术一面",
+        raw_notes: "包含个人面试记录",
+      },
+      disclosure: ["interview_notes"],
+    };
+    const user = userEvent.setup();
+    render(
+      <ActionPreview
+        draft={remoteDraft}
+        onModify={vi.fn()}
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(screen.getByText("远程发送：面经正文")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "确认写入" });
+    expect(confirm).toBeDisabled();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "我同意将面经正文发送给已配置的模型服务",
+      }),
+    );
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });

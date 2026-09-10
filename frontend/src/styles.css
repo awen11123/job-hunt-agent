@@ -230,7 +230,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .interview-list { display: grid; gap: 10px; }
 .interview-item { padding: 16px 18px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
 .interview-meta, .interview-meta > div, .interview-tags, .preview-heading, .preview-heading > div,
-.preview-actions, .settings-view label, .settings-actions { display: flex; }
+.preview-actions, .settings-view label, .settings-actions, .settings-section-heading { display: flex; }
 .interview-meta { align-items: flex-start; justify-content: space-between; gap: 16px; }
 .interview-meta > div { min-width: 0; align-items: baseline; flex-wrap: wrap; gap: 8px; }
 .interview-item h2 { font-size: 15px; }
@@ -240,6 +240,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .interview-tags .sync-local { color: #525b56; background: #e6e9e7; }
 .interview-notes { margin: 12px 0 0; color: #39423e; font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .text-button { min-height: 30px; margin-top: 5px; padding: 0; border: 0; color: var(--green); background: transparent; font-size: 12px; }
+.sync-button { margin-top: 9px; }
+.interview-sync-error { margin: 7px 0 0; }
 
 .review-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 26px 30px; }
 .review-section { padding-top: 14px; border-top: 2px solid #cbd2ce; }
@@ -258,18 +260,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .review-todos svg, .todo-line svg { flex: 0 0 auto; color: var(--green); }
 .muted-text { color: var(--muted); font-size: 13px; }
 
-.settings-view form { display: grid; max-width: 760px; gap: 28px; }
+.settings-form { display: grid; max-width: 760px; gap: 24px; }
 .settings-view section { padding-top: 15px; border-top: 1px solid var(--line); }
+.settings-section-heading { align-items: flex-start; justify-content: space-between; gap: 16px; }
+.settings-section-heading > div { min-width: 0; }
+.settings-section-heading h2 { margin-bottom: 2px; }
+.settings-section-heading p { margin: 0 0 11px; color: var(--muted); font-size: 12px; }
 .settings-view label { align-items: center; gap: 16px; min-height: 44px; color: #434c47; font-size: 13px; }
 .settings-view label > span:first-child { width: 112px; flex: 0 0 auto; }
-.settings-view label > input:not([type="checkbox"]) { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid #cfd6d2; border-radius: 6px; background: #fff; }
+.settings-view label > input:not([type="checkbox"]), .settings-view label > select { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid #cfd6d2; border-radius: 6px; background: #fff; }
 .settings-view .toggle-field { justify-content: space-between; }
 .settings-view .toggle-field > span { display: flex; width: auto; align-items: flex-start; flex-direction: column; gap: 2px; }
 .toggle-field small { color: var(--muted); }
 .toggle-field input { width: 18px; height: 18px; accent-color: var(--green); }
-.settings-actions { align-items: center; gap: 12px; }
+.settings-actions { flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 11px; }
 .success-text { color: var(--green); font-size: 13px; }
 .inline-error { color: var(--red); font-size: 13px; }
+.settings-form > .success-text, .settings-form > .inline-error { margin: -8px 0 0; }
+.integration-status { flex: 0 0 auto; padding: 3px 7px; border-radius: 5px; font-size: 12px; }
+.integration-empty { color: #59625e; background: #e9ecea; }
+.integration-configured { color: var(--amber); background: var(--amber-soft); }
+.integration-connected { color: #0f6842; background: var(--green-soft); }
+.integration-failed { color: var(--red); background: var(--red-soft); }
 
 .assistant {
   position: sticky;
@@ -303,6 +315,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .action-preview h3 { font-size: 14px; line-height: 23px; }
 .data-target { color: #516059; background: #ecefed; }
 .remote-disclosure { margin: -3px 0 10px; color: var(--muted); font-size: 11px; }
+.remote-consent { display: flex; align-items: flex-start; gap: 7px; margin-top: 11px; color: #6d4b0d; font-size: 11px; line-height: 17px; }
+.remote-consent input { width: 16px; height: 16px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--amber); }
 .before-preview { padding: 9px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .before-preview h4 { margin: 0 0 6px; color: var(--muted); font-size: 11px; }
 .before-preview dl { display: grid; gap: 4px; margin: 0; }

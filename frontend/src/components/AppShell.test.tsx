@@ -75,12 +75,34 @@ const config: LocalConfig = {
   model_enabled: false,
 };
 
+const integrationSettings = {
+  model: {
+    enabled: false,
+    provider: "deepseek" as const,
+    base_url: "https://api.deepseek.com",
+    model: "deepseek-chat",
+    credential_configured: false,
+    requires_api_key: true,
+  },
+  notion: {
+    enabled: false,
+    credential_configured: false,
+    database_configured: false,
+  },
+};
+
 function api(overrides: Partial<JobHuntApi> = {}): JobHuntApi {
   return {
     listApplications: vi.fn().mockResolvedValue(applications),
     listInterviews: vi.fn().mockResolvedValue(interviews),
     getConfig: vi.fn().mockResolvedValue(config),
     saveConfig: vi.fn().mockResolvedValue(config),
+    getSettings: vi.fn().mockResolvedValue(integrationSettings),
+    saveModelSettings: vi.fn().mockResolvedValue(integrationSettings.model),
+    testModelSettings: vi.fn().mockResolvedValue({ status: "connected", structured_output: true }),
+    saveNotionSettings: vi.fn().mockResolvedValue(integrationSettings.notion),
+    testNotionSettings: vi.fn().mockResolvedValue({ status: "connected" }),
+    syncInterview: vi.fn().mockRejectedValue(new Error("not used")),
     proposeAction: vi.fn().mockRejectedValue(new Error("not used")),
     modifyAction: vi.fn().mockRejectedValue(new Error("not used")),
     confirmAction: vi.fn().mockRejectedValue(new Error("not used")),
@@ -205,11 +227,15 @@ describe("AppShell", () => {
   });
 
   it("saves settings, clears stale success, and refreshes every data view", async () => {
-    const saveConfig = vi.fn().mockResolvedValue({ ...config, model_enabled: true });
+    const saveModelSettings = vi.fn().mockResolvedValue({
+      ...integrationSettings.model,
+      enabled: true,
+      credential_configured: true,
+    });
     const listApplications = vi.fn().mockResolvedValue(applications);
     const listInterviews = vi.fn().mockResolvedValue(interviews);
     const user = userEvent.setup();
-    render(<AppShell api={api({ saveConfig, listApplications, listInterviews })} />);
+    render(<AppShell api={api({ saveModelSettings, listApplications, listInterviews })} />);
     await waitFor(() => {
       expect(listApplications).toHaveBeenCalledTimes(2);
       expect(listInterviews).toHaveBeenCalledTimes(2);
@@ -218,17 +244,20 @@ describe("AppShell", () => {
 
     const modelToggle = await screen.findByRole("checkbox", { name: "启用模型" });
     await user.click(modelToggle);
-    await user.click(screen.getByRole("button", { name: "保存设置" }));
+    await user.type(screen.getByLabelText("API Key"), "temporary-key");
+    await user.click(screen.getByRole("button", { name: "保存模型设置" }));
 
-    expect(saveConfig).toHaveBeenCalledWith({ ...config, model_enabled: true });
-    expect(await screen.findByText("设置已保存")).toBeInTheDocument();
+    expect(saveModelSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "deepseek-chat", enabled: true }),
+    );
+    expect(await screen.findByText("模型设置已保存")).toBeInTheDocument();
     await waitFor(() => {
       expect(listApplications).toHaveBeenCalledTimes(4);
       expect(listInterviews).toHaveBeenCalledTimes(4);
     });
 
     await user.click(modelToggle);
-    expect(screen.queryByText("设置已保存")).not.toBeInTheDocument();
+    expect(screen.queryByText("模型设置已保存")).not.toBeInTheDocument();
   });
 
   it("shows daily, natural-week, exclusive funnel, and todo review sections", async () => {

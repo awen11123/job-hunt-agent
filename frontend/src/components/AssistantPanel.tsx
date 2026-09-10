@@ -126,7 +126,8 @@ export function AssistantPanel({ api, onApplicationsChanged }: AssistantPanelPro
         setReceipt(await answerRead(text));
       } else {
         const proposed = await api.proposeAction(text);
-        setDraft(proposed);
+        if ("kind" in proposed) setReceipt(proposed.message);
+        else setDraft(proposed);
       }
       setInput("");
     } catch (caught) {

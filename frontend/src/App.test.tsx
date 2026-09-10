@@ -21,6 +21,36 @@ const fakeApi = {
     notion_enabled: boolean;
     model_enabled: boolean;
   }) => config,
+  getSettings: async () => ({
+    model: {
+      enabled: false,
+      provider: "deepseek" as const,
+      base_url: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      credential_configured: false,
+      requires_api_key: true,
+    },
+    notion: {
+      enabled: false,
+      credential_configured: false,
+      database_configured: false,
+    },
+  }),
+  saveModelSettings: async () => {
+    throw new Error("not used in the shell test");
+  },
+  testModelSettings: async () => {
+    throw new Error("not used in the shell test");
+  },
+  saveNotionSettings: async () => {
+    throw new Error("not used in the shell test");
+  },
+  testNotionSettings: async () => {
+    throw new Error("not used in the shell test");
+  },
+  syncInterview: async () => {
+    throw new Error("not used in the shell test");
+  },
   proposeAction: async () => {
     throw new Error("not used in the shell test");
   },

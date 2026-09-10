@@ -27,6 +27,56 @@ export interface LocalConfig {
   model_enabled: boolean;
 }
 
+export type ProviderName =
+  | "deepseek"
+  | "qwen"
+  | "moonshot"
+  | "openai-compatible"
+  | "ollama";
+
+export interface ModelSettings {
+  enabled: boolean;
+  provider: ProviderName;
+  base_url: string;
+  model: string;
+  credential_configured: boolean;
+  requires_api_key: boolean;
+}
+
+export interface NotionSettings {
+  enabled: boolean;
+  credential_configured: boolean;
+  database_configured: boolean;
+}
+
+export interface IntegrationSettings {
+  model: ModelSettings;
+  notion: NotionSettings;
+}
+
+export interface ModelSettingsInput {
+  enabled: boolean;
+  provider: ProviderName;
+  base_url?: string;
+  model?: string;
+  api_key?: string;
+}
+
+export interface NotionSettingsInput {
+  enabled: boolean;
+  token?: string;
+  interviews_database_id?: string;
+}
+
+export interface ModelConnectionResult {
+  status: "connected";
+  structured_output: boolean;
+}
+
+export interface NotionConnectionResult {
+  status: "connected";
+}
+
 export type InterviewSyncStatus = "local" | "pending" | "synced" | "failed";
 
 export interface Interview {
@@ -53,6 +103,7 @@ export type ActionName =
   | "save_interview";
 
 export type ActionStatus = "pending" | "confirmed" | "cancelled" | "expired";
+export type DisclosureCategory = "application_metadata" | "interview_notes";
 
 export interface ActionDraft {
   id: string;
@@ -63,7 +114,15 @@ export interface ActionDraft {
   confirmation_token: string;
   operation_id: string;
   expires_at: string;
+  disclosure: DisclosureCategory[];
 }
+
+export interface AssistantMessage {
+  kind: "message";
+  message: string;
+}
+
+export type ActionProposal = ActionDraft | AssistantMessage;
 
 export interface ActionReceipt {
   status: "created" | "updated" | "unchanged" | "failed";

@@ -75,6 +75,13 @@ function fieldsForDraft(draft: ActionDraft): FieldDefinition[] {
   );
 }
 
+function disclosureText(draft: ActionDraft): string {
+  const labels = draft.disclosure.map((category) =>
+    category === "interview_notes" ? "面经正文" : "投递信息",
+  );
+  return labels.length > 0 ? labels.join("、") : "无";
+}
+
 export function ActionPreview({
   draft,
   busy = false,
@@ -84,10 +91,12 @@ export function ActionPreview({
 }: ActionPreviewProps) {
   const [editable, setEditable] = useState(() => editorState(draft));
   const [dirty, setDirty] = useState(false);
+  const [remoteConsent, setRemoteConsent] = useState(false);
 
   useEffect(() => {
     setEditable(editorState(draft));
     setDirty(false);
+    setRemoteConsent(false);
   }, [draft]);
 
   const update = (field: FieldDefinition, value: string) => {
@@ -114,6 +123,7 @@ export function ActionPreview({
 
   const fields = fieldsForDraft(draft);
   const target = draft.action === "save_interview" ? "本地 Markdown" : "Excel 投递表";
+  const requiresRemoteConsent = draft.disclosure.includes("interview_notes");
 
   return (
     <section className="action-preview" aria-labelledby="action-preview-heading">
@@ -124,7 +134,7 @@ export function ActionPreview({
         </div>
         <span className="data-target">{target}</span>
       </div>
-      <p className="remote-disclosure">远程发送：无</p>
+      <p className="remote-disclosure">远程发送：{disclosureText(draft)}</p>
 
       {draft.before && (
         <section className="before-preview" aria-label="变更前">
@@ -176,6 +186,17 @@ export function ActionPreview({
           ))}
         </div>
 
+        {requiresRemoteConsent && (
+          <label className="remote-consent">
+            <input
+              type="checkbox"
+              checked={remoteConsent}
+              onChange={(event) => setRemoteConsent(event.target.checked)}
+            />
+            <span>我同意将面经正文发送给已配置的模型服务</span>
+          </label>
+        )}
+
         <div className="preview-actions">
           <button className="secondary-button" type="submit" disabled={busy || !dirty}>
             <Pencil size={15} aria-hidden="true" />
@@ -193,9 +214,15 @@ export function ActionPreview({
           <button
             className="primary-button"
             type="button"
-            disabled={busy || dirty}
+            disabled={busy || dirty || (requiresRemoteConsent && !remoteConsent)}
             onClick={() => void onConfirm()}
-            title={dirty ? "请先保存修改" : `确认写入${target}`}
+            title={
+              dirty
+                ? "请先保存修改"
+                : requiresRemoteConsent && !remoteConsent
+                  ? "请先确认远程数据发送范围"
+                  : `确认写入${target}`
+            }
           >
             <Check size={16} aria-hidden="true" />
             确认写入

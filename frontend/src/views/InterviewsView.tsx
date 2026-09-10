@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, NotebookText, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, CloudUpload, NotebookText, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { JobHuntApi } from "../api/client";
@@ -23,6 +23,8 @@ export function InterviewsView({ api, refreshVersion = 0 }: InterviewsViewProps)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
+  const [syncing, setSyncing] = useState<Set<string>>(new Set());
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -61,6 +63,25 @@ export function InterviewsView({ api, refreshVersion = 0 }: InterviewsViewProps)
       else next.add(id);
       return next;
     });
+  };
+
+  const sync = async (interview: Interview) => {
+    setSyncError(null);
+    setSyncing((current) => new Set(current).add(interview.id));
+    try {
+      const updated = await api.syncInterview(interview.id);
+      setInterviews((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    } catch {
+      setSyncError(interview.id);
+    } finally {
+      setSyncing((current) => {
+        const next = new Set(current);
+        next.delete(interview.id);
+        return next;
+      });
+    }
   };
 
   return (
@@ -110,6 +131,27 @@ export function InterviewsView({ api, refreshVersion = 0 }: InterviewsViewProps)
                     {syncLabels[interview.sync_status]}
                   </span>
                 </div>
+                {interview.sync_status !== "synced" && (
+                  <button
+                    className="text-button sync-button"
+                    type="button"
+                    aria-label={`${interview.sync_status === "failed" ? "重试同步" : "同步"} ${interview.company}`}
+                    disabled={syncing.has(interview.id)}
+                    onClick={() => void sync(interview)}
+                  >
+                    <CloudUpload size={16} aria-hidden="true" />
+                    {syncing.has(interview.id)
+                      ? "同步中..."
+                      : interview.sync_status === "failed"
+                        ? "重试同步"
+                        : "同步到 Notion"}
+                  </button>
+                )}
+                {syncError === interview.id && (
+                  <p className="inline-error interview-sync-error" role="alert">
+                    同步失败，请稍后重试。
+                  </p>
+                )}
                 <p className="interview-notes">
                   {isExpanded ? interview.raw_notes : `${preview}${interview.raw_notes.length > 48 ? "..." : ""}`}
                 </p>

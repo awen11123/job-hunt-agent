@@ -34,6 +34,7 @@ describe("HttpJobHuntApi", () => {
     const api = new HttpJobHuntApi("private-session", "/api/", fetcher);
 
     await api.listApplications();
+    await api.getSettings();
     await api.proposeAction("今天投了示例公司");
     await api.modifyAction("draft/1", { company: "新公司", role: "Agent 工程师" });
     await api.confirmAction("draft/1", "confirm-token");
@@ -45,24 +46,40 @@ describe("HttpJobHuntApi", () => {
       notion_enabled: false,
       model_enabled: false,
     });
+    await api.saveModelSettings({
+      enabled: true,
+      provider: "ollama",
+      model: "qwen3:8b",
+    });
+    await api.testModelSettings();
+    await api.saveNotionSettings({ enabled: false });
+    await api.testNotionSettings();
+    await api.syncInterview("interview/1");
 
     expect(requests.map(({ url }) => url)).toEqual([
       "/api/applications",
+      "/api/settings",
       "/api/actions/propose",
       "/api/actions/draft%2F1",
       "/api/actions/draft%2F1/confirm",
       "/api/actions/draft%2F1/cancel",
       "/api/config",
+      "/api/settings/model",
+      "/api/settings/model/test",
+      "/api/settings/notion",
+      "/api/settings/notion/test",
+      "/api/interviews/interview%2F1/sync",
     ]);
     expect(new Headers(requests[0].init.headers).has("X-Job-Hunt-Session")).toBe(false);
     expect(new Headers(requests[1].init.headers).has("X-Job-Hunt-Session")).toBe(false);
-    for (const request of requests.slice(2)) {
+    expect(new Headers(requests[2].init.headers).has("X-Job-Hunt-Session")).toBe(false);
+    for (const request of requests.slice(3)) {
       expect(new Headers(request.init.headers).get("X-Job-Hunt-Session")).toBe(
         "private-session",
       );
     }
-    expect(requests[2].init.method).toBe("PATCH");
-    expect(requests[5].init.method).toBe("PUT");
+    expect(requests[3].init.method).toBe("PATCH");
+    expect(requests[6].init.method).toBe("PUT");
   });
 
   it("preserves a structured API error code and message", async () => {
