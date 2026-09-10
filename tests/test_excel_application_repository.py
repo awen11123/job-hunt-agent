@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import date
 from pathlib import Path
 
@@ -117,6 +118,70 @@ def build_synthetic_tracker(path: Path, *, include_divider: bool = True) -> Path
 
     metadata = workbook.create_sheet("只读元数据")
     metadata["A1"] = "不要修改"
+    workbook.save(path)
+    workbook.close()
+    return path
+
+
+def build_five_row_merged_tracker(path: Path) -> Path:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "投递总览"
+    sheet.append(HEADERS)
+    sheet.append(
+        [
+            "其他公司",
+            "其他岗位",
+            date(2026, 9, 9),
+            "杭州",
+            "已投递",
+            "等待筛选",
+            None,
+            None,
+            None,
+        ]
+    )
+    for index in range(5):
+        sheet.append(
+            [
+                " 三行集团 " if index == 0 else None,
+                f"合并岗位-{index + 1}",
+                date(2026, 9, index + 1),
+                "上海",
+                "已投递",
+                "等待筛选",
+                None,
+                "集团入口" if index == 0 else None,
+                f"备注-{index + 1}",
+            ]
+        )
+    sheet.append([None] * len(HEADERS))
+    for cell in sheet[sheet.max_row]:
+        cell.fill = PatternFill("solid", fgColor=DIVIDER_COLOR)
+        cell.font = Font(size=9)
+    sheet.append(
+        [
+            "旧公司",
+            "旧岗位",
+            date(2026, 8, 1),
+            None,
+            "结束",
+            "结束",
+            None,
+            None,
+            None,
+        ]
+    )
+    sheet.append(["投递公司总数：3", None, None, None, None, None, None, None, None])
+    sheet["A3"].fill = PatternFill("solid", fgColor="DDEBF7")
+    sheet["A3"].alignment = Alignment(horizontal="center", vertical="center")
+    sheet["H3"].fill = PatternFill("solid", fgColor="FFF2CC")
+    sheet["H3"].alignment = Alignment(horizontal="center", vertical="center")
+    sheet["H3"].hyperlink = "https://example.com/group-five"
+    sheet.merge_cells("A3:A7")
+    sheet.merge_cells("H3:H7")
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = "A1:I10"
     workbook.save(path)
     workbook.close()
     return path
@@ -263,6 +328,74 @@ def test_update_changes_only_requested_fields_in_place(tmp_path: Path) -> None:
     workbook.close()
 
 
+@pytest.mark.parametrize(
+    ("changes", "expected_company", "expected_label", "expected_target"),
+    [
+        (
+            {"company": "新中间公司"},
+            "新中间公司",
+            "集团入口",
+            "https://example.com/group-five",
+        ),
+        (
+            {"job_url": "https://example.com/new-middle"},
+            " 三行集团 ",
+            "查看岗位",
+            "https://example.com/new-middle",
+        ),
+    ],
+)
+def test_updating_middle_of_long_merge_splits_siblings_on_each_side(
+    tmp_path: Path,
+    changes: dict[str, str],
+    expected_company: str,
+    expected_label: str,
+    expected_target: str,
+) -> None:
+    workbook_path = build_five_row_merged_tracker(tmp_path / "tracker.xlsx")
+    before = load_workbook(workbook_path)
+    before_sheet = before["投递总览"]
+    expected_company_style = copy.copy(before_sheet["A3"]._style)
+    expected_link_style = copy.copy(before_sheet["H3"]._style)
+    before.close()
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "合并岗位-3")
+
+    repository.update_application(target.id, TrackerApplicationPatch(**changes))
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} == {
+        "A3:A4",
+        "A6:A7",
+        "H3:H4",
+        "H6:H7",
+    }
+    assert sheet["A3"].value == " 三行集团 "
+    assert sheet["A6"].value == " 三行集团 "
+    assert sheet["A5"].value == expected_company
+    assert sheet["A3"]._style == expected_company_style
+    assert sheet["A6"]._style == expected_company_style
+    assert sheet["A5"]._style == expected_company_style
+    assert sheet["H3"].value == "集团入口"
+    assert sheet["H6"].value == "集团入口"
+    assert sheet["H5"].value == expected_label
+    assert sheet["H3"].hyperlink.target == "https://example.com/group-five"
+    assert sheet["H6"].hyperlink.target == "https://example.com/group-five"
+    assert sheet["H5"].hyperlink.target == expected_target
+    assert sheet["H3"]._style == expected_link_style
+    assert sheet["H6"]._style == expected_link_style
+    assert sheet["H5"]._style == expected_link_style
+    assert [sheet[f"B{row}"].value for row in range(3, 8)] == [
+        "合并岗位-1",
+        "合并岗位-2",
+        "合并岗位-3",
+        "合并岗位-4",
+        "合并岗位-5",
+    ]
+    workbook.close()
+
+
 def test_closing_one_merged_role_splits_it_and_moves_it_below_existing_divider(
     tmp_path: Path,
 ) -> None:
@@ -300,6 +433,80 @@ def test_closing_one_merged_role_splits_it_and_moves_it_below_existing_divider(
     assert not sheet.merged_cells.ranges
     assert sheet["A8"].value == "投递公司总数：3"
     workbook.close()
+
+
+def test_closing_preserves_unpatched_raw_cell_content_and_formatting(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    raw_values = (
+        " 甲 ",
+        " 原岗位 ",
+        "2026-09-08",
+        " 杭州 ",
+        "已投递",
+        " 等待筛选 ",
+        "2026-09-10",
+        "自定义入口",
+        "  保留备注  ",
+    )
+    for column, value in enumerate(raw_values, start=1):
+        cell = sheet.cell(2, column)
+        cell.value = value
+        cell.fill = PatternFill("solid", fgColor=f"{column:02X}{column:02X}{column:02X}")
+        cell.font = Font(name="Arial", size=10 + column, strike=False)
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+        cell.comment = Comment(f"批注-{column}", "tester")
+    sheet["H2"].hyperlink = "https://example.com/raw-target"
+    sheet.row_dimensions[2].height = 47
+    workbook.save(workbook_path)
+    workbook.close()
+
+    before = load_workbook(workbook_path)
+    before_sheet = before["投递总览"]
+    expected = {
+        column: (
+            before_sheet.cell(2, column).value,
+            type(before_sheet.cell(2, column).value),
+            copy.copy(before_sheet.cell(2, column)._style),
+            before_sheet.cell(2, column).hyperlink.target
+            if before_sheet.cell(2, column).hyperlink
+            else None,
+            before_sheet.cell(2, column).comment.text,
+            before_sheet.cell(2, column).comment.author,
+        )
+        for column in range(1, 10)
+        if column != 5
+    }
+    expected_status_style = copy.copy(before_sheet["E2"]._style)
+    before.close()
+
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "原岗位")
+    repository.update_application(
+        target.id,
+        TrackerApplicationPatch(status="流程结束"),
+    )
+
+    after = load_workbook(workbook_path)
+    moved = after["投递总览"]
+    assert moved["E5"].value == "流程结束"
+    assert moved["E5"]._style == expected_status_style
+    assert moved["E5"].comment.text == "批注-5"
+    assert moved["E5"].comment.author == "tester"
+    assert moved.row_dimensions[5].height == 47
+    for column, signature in expected.items():
+        cell = moved.cell(5, column)
+        assert (
+            cell.value,
+            type(cell.value),
+            cell._style,
+            cell.hyperlink.target if cell.hyperlink else None,
+            cell.comment.text,
+            cell.comment.author,
+        ) == signature
+    assert all(moved.cell(5, column).font.strike is False for column in range(1, 10))
+    after.close()
 
 
 def test_first_closed_update_creates_gray_divider(tmp_path: Path) -> None:

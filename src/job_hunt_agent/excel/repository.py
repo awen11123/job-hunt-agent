@@ -203,7 +203,7 @@ class ExcelApplicationRepository:
                 raise ValueError("重复投递记录：企业、岗位和投递日期已存在")
 
             if _is_closed(prospective.status):
-                self._move_below_divider(sheet, located, prospective)
+                self._move_below_divider(sheet, located, prospective, changes)
             else:
                 self._update_in_place(sheet, located, prospective, changes)
             self._update_company_total(sheet)
@@ -448,7 +448,7 @@ class ExcelApplicationRepository:
     ) -> None:
         row = located.row
         if {"company", "job_url"}.intersection(changes):
-            cls._detach_from_vertical_merges(sheet, row, located.record)
+            cls._detach_from_vertical_merges(sheet, row)
         field_columns = {field: column for column, field in enumerate(FIELDS, start=1)}
         for field in changes:
             cls._write_field(sheet, row, field_columns[field], field, getattr(prospective, field))
@@ -458,9 +458,8 @@ class ExcelApplicationRepository:
         cls,
         sheet: Worksheet,
         row: int,
-        current: TrackerApplication,
     ) -> None:
-        for column, field in ((1, "company"), (8, "job_url")):
+        for column in (1, 8):
             matching = next(
                 (
                     copy.copy(merged)
@@ -475,24 +474,21 @@ class ExcelApplicationRepository:
                 continue
             anchor = _cell_snapshot(sheet.cell(matching.min_row, column))
             sheet.unmerge_cells(str(matching))
-            remaining = [
-                source_row
-                for source_row in range(matching.min_row, matching.max_row + 1)
-                if source_row != row
-            ]
-            if remaining:
-                _write_cell_snapshot(sheet.cell(remaining[0], column), anchor)
-            if len(remaining) > 1:
-                sheet.merge_cells(
-                    start_row=remaining[0],
-                    end_row=remaining[-1],
-                    start_column=column,
-                    end_column=column,
-                )
-            if field == "company":
-                sheet.cell(row, column).value = current.company
-            else:
-                cls._write_field(sheet, row, column, field, current.job_url)
+            _write_cell_snapshot(sheet.cell(row, column), anchor)
+            for start_row, end_row in (
+                (matching.min_row, row - 1),
+                (row + 1, matching.max_row),
+            ):
+                if start_row > end_row:
+                    continue
+                _write_cell_snapshot(sheet.cell(start_row, column), anchor)
+                if start_row < end_row:
+                    sheet.merge_cells(
+                        start_row=start_row,
+                        end_row=end_row,
+                        start_column=column,
+                        end_column=column,
+                    )
 
     @classmethod
     def _move_below_divider(
@@ -500,6 +496,7 @@ class ExcelApplicationRepository:
         sheet: Worksheet,
         located: _LocatedApplication,
         prospective: TrackerApplication,
+        changes: dict[str, object],
     ) -> None:
         original_max_row = sheet.max_row
         max_column = max(sheet.max_column, len(HEADERS))
@@ -578,7 +575,15 @@ class ExcelApplicationRepository:
                 cell.fill = PatternFill("solid", fgColor=DIVIDER_COLOR)
                 cell.font = Font(size=9)
         destination_row = ordered.index(target) + 2
-        cls._write_full_record(sheet, destination_row, prospective)
+        field_columns = {field: column for column, field in enumerate(FIELDS, start=1)}
+        for field in changes:
+            cls._write_field(
+                sheet,
+                destination_row,
+                field_columns[field],
+                field,
+                getattr(prospective, field),
+            )
         for column in range(1, len(HEADERS) + 1):
             font = copy.copy(sheet.cell(destination_row, column).font)
             font.strike = False
