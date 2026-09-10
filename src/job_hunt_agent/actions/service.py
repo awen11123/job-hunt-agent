@@ -28,7 +28,7 @@ _WRITE_REQUEST_PATTERN = re.compile(
 _QUESTION_PATTERN = re.compile(
     r"(?:哪个|哪些|什么|吗|是否|多少|怎么|如何|为何|为什么|[?？])"
 )
-_URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
+_URL_PATTERN = re.compile(r"https?://[^\s，。；！？]+", re.IGNORECASE)
 _STAGE_STATUS = {
     RecruitingStage.TO_APPLY: "待投递",
     RecruitingStage.APPLIED: "已投递",

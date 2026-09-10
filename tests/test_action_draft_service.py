@@ -189,6 +189,22 @@ def test_propose_application_rejects_body_question_even_with_url() -> None:
     assert repository.created == []
 
 
+@pytest.mark.parametrize("separator", ["，", "。", "？"])
+def test_propose_application_detects_question_immediately_after_url(
+    separator: str,
+) -> None:
+    service, repository, _ = configured_service()
+
+    with pytest.raises(UnsupportedInputError):
+        service.propose_application(
+            "今天投了美团的 Agent 工程师，"
+            "https://example.com/job?jobUnionId=4694862735&highlightType=campus"
+            f"{separator}为什么投这个岗位？"
+        )
+
+    assert repository.created == []
+
+
 @pytest.mark.parametrize(
     "text",
     [
