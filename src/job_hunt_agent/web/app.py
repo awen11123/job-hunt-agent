@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import html
-import re
 import secrets
+from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Annotated
 
@@ -35,14 +36,77 @@ from job_hunt_agent.web.schemas import (
 
 
 SessionRequired = Annotated[None, Depends(require_session)]
-_ROOT_ELEMENT = re.compile(
-    r"(<div\b(?=[^>]*\bid=(?P<quote>['\"])root(?P=quote))[^>]*)(>)",
-    re.IGNORECASE,
-)
-_SESSION_ATTRIBUTE = re.compile(
-    r'''\s+data-session-token\b(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?''',
-    re.IGNORECASE,
-)
+
+
+class _InvalidFrontendIndex(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class _RootStartTag:
+    offset: int
+    raw: str
+    has_unique_root_id: bool
+    has_session_token: bool
+
+
+class _RootElementParser(HTMLParser):
+    def __init__(self, document: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self._line_offsets = [0]
+        for line in document.splitlines(keepends=True):
+            self._line_offsets.append(self._line_offsets[-1] + len(line))
+        self.roots: list[_RootStartTag] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag != "div":
+            return
+        id_values = [value for name, value in attrs if name == "id"]
+        if "root" not in id_values:
+            return
+        raw = self.get_starttag_text()
+        if raw is None:
+            raise _InvalidFrontendIndex
+        line, column = self.getpos()
+        self.roots.append(
+            _RootStartTag(
+                offset=self._line_offsets[line - 1] + column,
+                raw=raw,
+                has_unique_root_id=id_values == ["root"],
+                has_session_token=any(
+                    name == "data-session-token" for name, _value in attrs
+                ),
+            )
+        )
+
+
+def _inject_session_token(index: str, session_token: str) -> str:
+    parser = _RootElementParser(index)
+    parser.feed(index)
+    parser.close()
+    if len(parser.roots) != 1:
+        raise _InvalidFrontendIndex
+
+    root = parser.roots[0]
+    if (
+        not root.has_unique_root_id
+        or root.has_session_token
+        or root.raw.rstrip().endswith("/>")
+    ):
+        raise _InvalidFrontendIndex
+    closing_offset = root.raw.rfind(">")
+    if closing_offset < 0:
+        raise _InvalidFrontendIndex
+    insertion_offset = root.offset + closing_offset
+    escaped_token = html.escape(session_token, quote=True)
+    return (
+        f'{index[:insertion_offset]} data-session-token="{escaped_token}"'
+        f"{index[insertion_offset:]}"
+    )
 
 
 def _detail(code: str, message: str) -> dict[str, str]:
@@ -236,20 +300,13 @@ def _frontend_response(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_detail("frontend_unavailable", "前端资源暂时不可用。"),
         ) from None
-    if len(list(_ROOT_ELEMENT.finditer(index))) != 1:
+    try:
+        rendered = _inject_session_token(index, session_token)
+    except _InvalidFrontendIndex:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_detail("frontend_unavailable", "前端资源暂时不可用。"),
-        )
-    escaped_token = html.escape(session_token, quote=True)
-    rendered, _count = _ROOT_ELEMENT.subn(
-        lambda match: (
-            f'{_SESSION_ATTRIBUTE.sub("", match.group(1))} '
-            f'data-session-token="{escaped_token}"{match.group(3)}'
-        ),
-        index,
-        count=1,
-    )
+        ) from None
     return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
@@ -279,10 +336,9 @@ def create_app(
         static_root = static_dir.resolve()
         try:
             index = (static_root / "index.html").read_text(encoding="utf-8")
-        except OSError:
+            _inject_session_token(index, app.state.session_token)
+        except (OSError, _InvalidFrontendIndex):
             raise RuntimeError("The frontend build is unavailable.") from None
-        if len(list(_ROOT_ELEMENT.finditer(index))) != 1:
-            raise RuntimeError("The frontend build is unavailable.")
 
         @app.get("/", include_in_schema=False, response_model=None)
         def serve_frontend_root() -> Response:

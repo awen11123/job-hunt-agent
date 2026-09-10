@@ -94,10 +94,29 @@ def test_app_serves_assets_and_spa_with_an_in_memory_session_token(tmp_path: Pat
     assert token not in store.path.read_text(encoding="utf-8")
 
 
-def test_existing_session_attribute_is_replaced_without_changing_index(tmp_path: Path) -> None:
+def test_existing_session_attribute_is_rejected_without_changing_index(tmp_path: Path) -> None:
     frontend = tmp_path / "dist"
     frontend.mkdir()
     original_index = '<div id="root" data-session-token="stale-token"></div>'
+    index_path = frontend / "index.html"
+    index_path.write_text(original_index, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="frontend build is unavailable"):
+        create_app(
+            _build_store(tmp_path),
+            session_token="current-process-token",
+            static_dir=frontend,
+        )
+
+    assert index_path.read_text(encoding="utf-8") == original_index
+
+
+def test_session_text_inside_another_attribute_is_preserved(tmp_path: Path) -> None:
+    frontend = tmp_path / "dist"
+    frontend.mkdir()
+    original_index = (
+        '<div id="root" data-note="keep data-session-token=stale intact"></div>'
+    )
     index_path = frontend / "index.html"
     index_path.write_text(original_index, encoding="utf-8")
     client = TestClient(
@@ -113,8 +132,8 @@ def test_existing_session_attribute_is_replaced_without_changing_index(tmp_path:
 
     assert response.status_code == 200
     assert _session_token(response.text) == "current-process-token"
-    assert response.text.count("data-session-token") == 1
-    assert "stale-token" not in response.text
+    assert 'data-note="keep data-session-token=stale intact"' in response.text
+    assert response.text.count('data-session-token="current-process-token"') == 1
     assert index_path.read_text(encoding="utf-8") == original_index
 
 
@@ -148,7 +167,14 @@ def test_missing_asset_returns_404_instead_of_spa_html(tmp_path: Path) -> None:
     assert "<!doctype html>" not in response.text
 
 
-@pytest.mark.parametrize("index_contents", [None, "<main>Missing root marker</main>"])
+@pytest.mark.parametrize(
+    "index_contents",
+    [
+        None,
+        "<main>Missing root marker</main>",
+        '<div id="root"></div><div id="root"></div>',
+    ],
+)
 def test_static_frontend_requires_an_index_with_a_root_mount(
     tmp_path: Path,
     index_contents: str | None,
