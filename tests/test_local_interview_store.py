@@ -352,6 +352,52 @@ def test_markdown_contains_fixed_marker_and_missing_marker_is_rejected(
         store.get(saved.id)
 
 
+@pytest.mark.parametrize("marker_newline", ("\r\n", "\r"), ids=("crlf", "cr"))
+def test_get_and_list_accept_marker_newline_variants_without_normalizing_raw_notes(
+    store_module: ModuleType,
+    tmp_path: Path,
+    marker_newline: str,
+) -> None:
+    raw_notes = "first\r\nsecond\rthird\nlast\r\n"
+    store = store_module.LocalInterviewStore(tmp_path)
+    saved = store.save(
+        make_draft(store_module, raw_notes=raw_notes),
+        f"marker-newline-{marker_newline.encode().hex()}",
+    )
+    original = saved.markdown_path.read_bytes()
+    marker_with_lf = f"{store_module.RAW_NOTES_MARKER}\n".encode("utf-8")
+    prefix, found, notes = original.partition(marker_with_lf)
+    assert found == marker_with_lf
+    saved.markdown_path.write_bytes(
+        prefix
+        + store_module.RAW_NOTES_MARKER.encode("utf-8")
+        + marker_newline.encode("ascii")
+        + notes
+    )
+
+    assert store.get(saved.id).raw_notes == raw_notes
+    assert store.list()[0].raw_notes == raw_notes
+
+
+def test_marker_without_following_newline_is_rejected(
+    store_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    store = store_module.LocalInterviewStore(tmp_path)
+    saved = store.save(make_draft(store_module), "marker-without-newline")
+    markdown = saved.markdown_path.read_bytes()
+    saved.markdown_path.write_bytes(
+        markdown.replace(
+            f"{store_module.RAW_NOTES_MARKER}\n".encode("utf-8"),
+            store_module.RAW_NOTES_MARKER.encode("utf-8"),
+            1,
+        )
+    )
+
+    with pytest.raises(ValueError, match="marker must be followed by a newline"):
+        store.get(saved.id)
+
+
 def test_missing_markdown_file_is_reported(store_module: ModuleType, tmp_path: Path) -> None:
     store = store_module.LocalInterviewStore(tmp_path)
     saved = store.save(make_draft(store_module), "missing-markdown")
@@ -464,6 +510,77 @@ def test_index_replace_failure_removes_new_markdown_and_keeps_old_index(
     assert (tmp_path / "index.json").read_bytes() == index_before
     assert existing.markdown_path.read_bytes() == markdown_before
     assert [path.name for path in tmp_path.glob("*.md")] == [existing.markdown_path.name]
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_index_replace_committed_then_interrupted_preserves_record_and_markdown(
+    store_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = store_module.LocalInterviewStore(tmp_path)
+    store.save(make_draft(store_module), "committed-existing")
+    operation_id = "committed-before-interrupt"
+    draft = make_draft(store_module, company="已提交公司", raw_notes="committed notes")
+    interview_id = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:16]
+    real_replace = store_module.os.replace
+
+    def interrupt_after_index_replace(source: str | Path, destination: str | Path) -> None:
+        real_replace(source, destination)
+        if Path(destination) == store.index_path:
+            raise KeyboardInterrupt("interrupted after index commit")
+
+    monkeypatch.setattr(store_module.os, "replace", interrupt_after_index_replace)
+
+    with pytest.raises(KeyboardInterrupt, match="after index commit"):
+        store.save(draft, operation_id)
+
+    loaded = store.get(interview_id)
+    assert loaded.operation_id == operation_id
+    assert loaded.raw_notes == draft.raw_notes
+    assert loaded.markdown_path.exists()
+    assert len(store.list()) == 2
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_uncertain_index_state_preserves_orphan_and_reraises_original_error(
+    store_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = store_module.LocalInterviewStore(tmp_path)
+    existing = store.save(make_draft(store_module), "uncertain-existing")
+    index_before = store.index_path.read_bytes()
+    operation_id = "uncertain-new"
+    draft = make_draft(store_module, company="不确定提交状态")
+    interview_id = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:16]
+    markdown_path = tmp_path / store_module._markdown_filename(draft, interview_id)
+    real_read_index = store._read_index
+    read_calls = 0
+    real_replace = store_module.os.replace
+
+    def fail_recovery_read():
+        nonlocal read_calls
+        read_calls += 1
+        if read_calls == 2:
+            raise OSError("cannot determine index state")
+        return real_read_index()
+
+    def interrupt_before_index_replace(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == store.index_path:
+            raise KeyboardInterrupt("interrupted before index commit")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(store, "_read_index", fail_recovery_read)
+    monkeypatch.setattr(store_module.os, "replace", interrupt_before_index_replace)
+
+    with pytest.raises(KeyboardInterrupt, match="before index commit"):
+        store.save(draft, operation_id)
+
+    assert read_calls == 2
+    assert store.index_path.read_bytes() == index_before
+    assert existing.markdown_path.exists()
+    assert markdown_path.read_bytes().decode("utf-8") == store_module._markdown_text(draft)
     assert not list(tmp_path.glob("*.tmp"))
 
 

@@ -156,11 +156,14 @@ def _markdown_text(draft: LocalInterviewDraft) -> str:
 
 
 def _extract_raw_notes(markdown: str) -> str:
-    separator = f"{RAW_NOTES_MARKER}\n"
-    _, found, raw_notes = markdown.partition(separator)
+    _, found, content_after_marker = markdown.partition(RAW_NOTES_MARKER)
     if not found:
         raise ValueError("Markdown raw-notes marker is missing")
-    return raw_notes
+    if content_after_marker.startswith("\r\n"):
+        return content_after_marker[2:]
+    if content_after_marker.startswith(("\n", "\r")):
+        return content_after_marker[1:]
+    raise ValueError("Markdown raw-notes marker must be followed by a newline")
 
 
 def _try_lock_file(handle: BinaryIO) -> bool:
@@ -282,7 +285,17 @@ class LocalInterviewStore:
                 self._atomic_write_index(updated_index)
             except BaseException:
                 if created_markdown:
-                    markdown_path.unlink(missing_ok=True)
+                    try:
+                        persisted_index = self._read_index()
+                    except BaseException:
+                        pass
+                    else:
+                        committed = any(
+                            persisted_record == index_record
+                            for persisted_record in persisted_index.records
+                        )
+                        if not committed:
+                            markdown_path.unlink(missing_ok=True)
                 raise
             return record
 
