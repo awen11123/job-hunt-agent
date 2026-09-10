@@ -558,6 +558,10 @@ def test_launcher_binds_loopback_and_opens_browser_after_health_check() -> None:
     assert fake_browser.opened_after_health_check is True
 ```
 
+Add an integration test proving the served page receives the non-empty in-memory session token
+expected by `frontend/src/main.tsx`, and that the token can authorize confirm/cancel requests. The
+token must not appear in the URL, logs, configuration file, or other persistent storage.
+
 - [ ] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_web_launcher.py`
@@ -566,7 +570,10 @@ Expected: FAIL because the launcher does not exist.
 
 - [ ] **Step 3: Implement static serving and `python -m` launcher**
 
-The launcher must select a free loopback port, start Uvicorn, poll `/api/health`, and only then call `webbrowser.open`. Add `python -m job_hunt_agent.web.launcher` to the README.
+The launcher must select a free loopback port, start Uvicorn, poll `/api/health`, and only then call
+`webbrowser.open`. Static `index.html` responses must inject the current process session token into
+the root element's `data-session-token` attribute without modifying the built file on disk. Add
+`python -m job_hunt_agent.web.launcher` to the README.
 
 - [ ] **Step 4: Run complete MVP verification**
 
