@@ -188,8 +188,8 @@ Expected: PASS.
 Run:
 
 ```bash
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 add pyproject.toml .gitignore .env.example README.md src tests
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 commit -m "chore: scaffold job hunt agent"
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt add pyproject.toml .gitignore .env.example README.md src tests
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt commit -m "chore: scaffold job hunt agent"
 ```
 
 Expected: commit succeeds.
@@ -534,8 +534,8 @@ Expected: PASS.
 Run:
 
 ```bash
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 add src/job_hunt_agent/domain tests/test_domain_models.py
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 commit -m "feat: add job hunt domain models"
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt add src/job_hunt_agent/domain tests/test_domain_models.py
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt commit -m "feat: add job hunt domain models"
 ```
 
 Expected: commit succeeds.
@@ -695,8 +695,8 @@ Expected: PASS.
 Run:
 
 ```bash
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 add src/job_hunt_agent/config.py src/job_hunt_agent/matching.py src/job_hunt_agent/privacy.py tests/test_matching_privacy_config.py
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 commit -m "feat: add config matching and privacy scan"
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt add src/job_hunt_agent/config.py src/job_hunt_agent/matching.py src/job_hunt_agent/privacy.py tests/test_matching_privacy_config.py
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt commit -m "feat: add config matching and privacy scan"
 ```
 
 Expected: commit succeeds.
@@ -1030,8 +1030,8 @@ Expected: PASS.
 Run:
 
 ```bash
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 add src/job_hunt_agent/repositories.py src/job_hunt_agent/services tests/test_application_service.py
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 commit -m "feat: add application tracking service"
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt add src/job_hunt_agent/repositories.py src/job_hunt_agent/services tests/test_application_service.py
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt commit -m "feat: add application tracking service"
 ```
 
 Expected: commit succeeds.
@@ -1353,8 +1353,8 @@ Expected: PASS.
 Run:
 
 ```bash
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 add src/job_hunt_agent/ai src/job_hunt_agent/prompts src/job_hunt_agent/services/interviews.py tests/test_interview_service.py
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 commit -m "feat: add interview recording and analysis"
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt add src/job_hunt_agent/ai src/job_hunt_agent/prompts src/job_hunt_agent/services/interviews.py tests/test_interview_service.py
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt commit -m "feat: add interview recording and analysis"
 ```
 
 Expected: commit succeeds.
@@ -1593,8 +1593,8 @@ Expected: PASS.
 Run:
 
 ```bash
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 add src/job_hunt_agent/services/reporting.py src/job_hunt_agent/mcp_server.py tests/test_reporting_and_mcp_contract.py
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 commit -m "feat: expose mcp tool contract"
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt add src/job_hunt_agent/services/reporting.py src/job_hunt_agent/mcp_server.py tests/test_reporting_and_mcp_contract.py
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt commit -m "feat: expose mcp tool contract"
 ```
 
 Expected: commit succeeds.
@@ -1761,8 +1761,8 @@ Expected: exit code 0 and no findings.
 Run:
 
 ```bash
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 add README.md docs/notion-setup.md docs/privacy.md examples scripts tests/test_privacy_scan_script.py
-rtk git -c safe.directory=C:/Users/<username>/Desktop/秋招 commit -m "docs: add setup privacy and synthetic examples"
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt add README.md docs/notion-setup.md docs/privacy.md examples scripts tests/test_privacy_scan_script.py
+rtk git -c safe.directory=C:/Users/<username>/Desktop/job-hunt commit -m "docs: add setup privacy and synthetic examples"
 ```
 
 Expected: commit succeeds.

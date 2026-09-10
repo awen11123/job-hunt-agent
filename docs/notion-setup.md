@@ -34,7 +34,8 @@ store data source IDs. Do not paste tokens, page IDs, real job-search records, o
 URLs into chat logs or commit them to GitHub.
 
 The bootstrap script also keeps the default Notion screens readable by configuring slim
-views instead of deleting fields:
+views instead of deleting fields, and creates or reuses one `秋招总览` page with linked
+table views for all four data sources:
 
 - `投递记录`: `总览`, `待跟进`, `完整字段`
 - `流程日志`: `总览`, `完整字段`

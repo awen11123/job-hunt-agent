@@ -41,8 +41,20 @@ def test_privacy_scan_does_not_treat_empty_env_example_as_secret() -> None:
 
 
 def test_settings_reads_env_without_requiring_real_secrets(monkeypatch) -> None:
+    for name in [
+        "NOTION_TOKEN",
+        "NOTION_PARENT_PAGE_ID",
+        "NOTION_APPLICATIONS_DB_ID",
+        "NOTION_ACTIVITY_DB_ID",
+        "NOTION_INTERVIEWS_DB_ID",
+        "NOTION_REVIEW_TASKS_DB_ID",
+        "DEEPSEEK_API_KEY",
+    ]:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("DEFAULT_RECRUITING_SEASON", "2026-autumn")
     monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-chat")
+    monkeypatch.setattr(config_module, "winreg_user_environment_value", lambda name: None)
+    monkeypatch.setattr(config_module, "powershell_user_environment_value", lambda name: None)
 
     settings = Settings.from_env()
 

@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 import sys
 
@@ -13,6 +14,8 @@ from job_hunt_agent.notion.bootstrap import (  # noqa: E402
     set_user_environment_value,
 )
 from job_hunt_agent.notion.client import NotionClient  # noqa: E402
+from job_hunt_agent.repositories import NotionDatabaseIds, NotionJobHuntRepository  # noqa: E402
+from job_hunt_agent.services.reporting import ReportingService  # noqa: E402
 
 
 DATABASE_ENV_NAMES = [
@@ -56,6 +59,15 @@ def configured_database_ids(settings: Settings) -> BootstrappedDatabases:
     )
 
 
+def configured_repository_ids(settings: Settings) -> NotionDatabaseIds:
+    return NotionDatabaseIds(
+        applications=settings.notion_applications_db_id or "",
+        activity=settings.notion_activity_db_id or "",
+        interviews=settings.notion_interviews_db_id or "",
+        review_tasks=settings.notion_review_tasks_db_id or "",
+    )
+
+
 def main() -> int:
     settings = Settings.from_env()
     if has_database_configuration(settings):
@@ -67,6 +79,22 @@ def main() -> int:
             print("notion_database_titles=localized")
             bootstrapper.configure_readable_views(database_ids)
             print("notion_views=configured")
+            if settings.notion_parent_page_id:
+                repository = NotionJobHuntRepository(
+                    token=settings.notion_token,
+                    database_ids=configured_repository_ids(settings),
+                    client=client,
+                )
+                repository.load_all()
+                reporting = ReportingService(repository)
+                overview_page_id = bootstrapper.ensure_text_first_overview_page(
+                    settings.notion_parent_page_id
+                )
+                bootstrapper.refresh_text_overview(
+                    overview_page_id,
+                    reporting.generate_text_overview(date.today()),
+                )
+                print("notion_text_overview=configured")
         print("notion_databases=already_configured")
         return 0
 

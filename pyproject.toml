@@ -5,16 +5,23 @@ description = "Private Notion-backed autumn recruitment tracker exposed as a Pyt
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "fastapi>=0.115.0",
   "fastmcp>=2.0.0",
   "httpx>=0.27.0",
+  "keyring>=25.0.0",
+  "openpyxl>=3.1.5",
   "pydantic>=2.7.0",
   "python-dotenv>=1.0.1",
+  "uvicorn>=0.30.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.2.0",
   "ruff>=0.5.0",
+]
+release = [
+  "pyinstaller>=6.10.0",
 ]
 
 [tool.pytest.ini_options]

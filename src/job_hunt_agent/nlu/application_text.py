@@ -20,6 +20,7 @@ LOCATIONS = (
     "远程",
 )
 DIRECTIONS = ("AI Agent", "LLM", "RAG", "Agent", "大模型", "后端", "算法", "应用")
+URL_PATTERN = re.compile(r"https?://[^\s，。；！？]+", re.IGNORECASE)
 
 
 def parse_application_text(
@@ -27,7 +28,8 @@ def parse_application_text(
     today: date,
     default_season: str | None = None,
 ) -> ApplicationDraft:
-    cleaned = normalize_text(text)
+    normalized = normalize_text(text)
+    cleaned, job_url = without_job_urls(normalized)
     company, role = company_and_role(cleaned)
     return ApplicationDraft(
         company=company,
@@ -36,6 +38,7 @@ def parse_application_text(
         direction=first_matching_direction(cleaned),
         location=first_matching_value(cleaned, LOCATIONS),
         channel=first_matching_value(before_next_step(cleaned), CHANNELS),
+        jd_url=job_url,
         resume_version=resume_version(cleaned),
         applied_date=applied_date(cleaned, today),
         current_stage=stage(cleaned),
@@ -46,6 +49,12 @@ def parse_application_text(
 
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
+
+
+def without_job_urls(text: str) -> tuple[str, str | None]:
+    match = URL_PATTERN.search(text)
+    job_url = match.group(0) if match else None
+    return normalize_text(URL_PATTERN.sub(" ", text)), job_url
 
 
 def company_and_role(text: str) -> tuple[str, str]:

@@ -49,12 +49,17 @@ class ApplicationService:
             updated_at=now,
         )
         record = self.repository.save_application(record)
+        event_time = (
+            datetime.combine(record.applied_date, datetime.min.time(), tzinfo=timezone.utc)
+            if record.applied_date
+            else now
+        )
         event = ActivityEvent(
             id=self.repository.next_id("evt"),
             application_id=record.id,
             operation_id=operation_id,
             event_type=EventType.APPLICATION_CREATED,
-            occurred_at=now,
+            occurred_at=event_time,
             to_stage=record.current_stage,
             sync_status=SyncStatus.COMPLETED,
         )

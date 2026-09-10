@@ -1,0 +1,78 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python dependencies
+        run: python -m pip install -e ".[dev,release]"
+
+      - name: Run backend tests
+        run: python -X utf8 -m pytest -q
+
+      - name: Build and test frontend
+        run: python -X utf8 scripts/build_frontend.py
+
+      - name: Scan public source for private data
+        run: >-
+          python -X utf8 scripts/privacy_scan.py README.md pyproject.toml src scripts
+          tests frontend/src frontend/package.json frontend/package-lock.json packaging .github
+
+      - name: Build standalone application
+        run: pyinstaller --noconfirm --clean packaging/job_hunt_agent.spec
+
+      - name: Verify standalone release directory
+        run: python -X utf8 scripts/verify_release_artifact.py dist/JobHuntAgent
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          ./scripts/build_windows_installer.ps1 -Version $version
+
+      - name: Smoke-test install, startup, and uninstall
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath dist/installer -Filter "JobHuntAgent-Setup-*.exe" | Select-Object -First 1
+          ./scripts/smoke_windows_install.ps1 -Installer $installer.FullName
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath dist/installer -Filter "JobHuntAgent-Setup-*.exe" | Select-Object -First 1
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -LiteralPath "$($installer.FullName).sha256" -Encoding ascii -NoNewline
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/installer/JobHuntAgent-Setup-*.exe
+            dist/installer/JobHuntAgent-Setup-*.exe.sha256

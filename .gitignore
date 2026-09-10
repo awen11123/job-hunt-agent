@@ -2,10 +2,17 @@
 .env
 .venv/
 __pycache__/
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
 build/
 dist/
+node_modules/
+coverage/
+*.tsbuildinfo
 *.egg-info/
+src/job_hunt_agent/web_static/
 private_exports/
 notion_cache.json
+.superpowers/
+backups/

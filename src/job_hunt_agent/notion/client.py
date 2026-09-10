@@ -43,11 +43,43 @@ class NotionClient:
             },
         )
 
+    def create_child_page(self, parent_page_id: str, title: str) -> dict:
+        return self._request(
+            "POST",
+            "/pages",
+            json={
+                "parent": {"type": "page_id", "page_id": parent_page_id},
+                "properties": {"title": title_payload(title)},
+            },
+        )
+
     def update_page(self, page_id: str, properties: dict[str, Any]) -> dict:
         return self._request("PATCH", f"/pages/{page_id}", json={"properties": properties})
 
+    def update_child_page_title(self, page_id: str, title: str) -> dict:
+        return self.update_page(page_id, {"title": title_payload(title)})
+
     def retrieve_page(self, page_id: str) -> dict:
         return self._request("GET", f"/pages/{page_id}")
+
+    def list_block_children(self, block_id: str) -> list[dict]:
+        results: list[dict] = []
+        cursor: str | None = None
+        while True:
+            params: dict[str, Any] = {}
+            if cursor is not None:
+                params["start_cursor"] = cursor
+            response = self._request("GET", f"/blocks/{block_id}/children", params=params)
+            results.extend(response.get("results", []))
+            if not response.get("has_more"):
+                return results
+            cursor = response.get("next_cursor")
+
+    def append_block_children(self, block_id: str, children: list[dict[str, Any]]) -> dict:
+        return self._request("PATCH", f"/blocks/{block_id}/children", json={"children": children})
+
+    def archive_block(self, block_id: str) -> dict:
+        return self._request("DELETE", f"/blocks/{block_id}")
 
     def retrieve_data_source(self, data_source_id: str) -> dict:
         return self._request("GET", f"/data_sources/{data_source_id}")
@@ -69,11 +101,21 @@ class NotionClient:
             json={"title": title_payload(title)},
         )
 
-    def list_views(self, database_id: str) -> list[dict]:
+    def list_views(
+        self,
+        database_id: str | None = None,
+        data_source_id: str | None = None,
+    ) -> list[dict]:
+        if database_id is None and data_source_id is None:
+            raise ValueError("database_id or data_source_id is required")
         results: list[dict] = []
         cursor: str | None = None
         while True:
-            params: dict[str, Any] = {"database_id": database_id}
+            params: dict[str, Any] = {}
+            if database_id is not None:
+                params["database_id"] = database_id
+            if data_source_id is not None:
+                params["data_source_id"] = data_source_id
             if cursor is not None:
                 params["start_cursor"] = cursor
             response = self._request("GET", "/views", params=params)
@@ -87,6 +129,25 @@ class NotionClient:
 
     def create_view(self, payload: dict[str, Any]) -> dict:
         return self._request("POST", "/views", json=payload)
+
+    def create_linked_database_view(
+        self,
+        parent_page_id: str,
+        data_source_id: str,
+        name: str,
+        configuration: dict[str, Any],
+    ) -> dict:
+        return self.create_view(
+            {
+                "create_database": {
+                    "parent": {"type": "page_id", "page_id": parent_page_id},
+                },
+                "data_source_id": data_source_id,
+                "name": name,
+                "type": "table",
+                "configuration": configuration,
+            }
+        )
 
     def update_view(self, view_id: str, payload: dict[str, Any]) -> dict:
         return self._request("PATCH", f"/views/{view_id}", json=payload)
@@ -104,6 +165,17 @@ class NotionClient:
                 return item
         return None
 
+    def find_page_by_title(self, title: str, parent_page_id: str | None = None) -> dict | None:
+        response = self._request(
+            "POST",
+            "/search",
+            json={"query": title, "filter": {"value": "page", "property": "object"}},
+        )
+        for item in response.get("results", []):
+            if page_title(item) == title and self._matches_page_parent(item, parent_page_id):
+                return item
+        return None
+
     def _matches_parent_page(self, data_source: dict, parent_page_id: str | None) -> bool:
         if parent_page_id is None:
             return True
@@ -117,6 +189,15 @@ class NotionClient:
         database_parent = database.get("parent", {})
         return database_parent.get("type") == "page_id" and notion_id_equal(
             database_parent.get("page_id", ""),
+            parent_page_id,
+        )
+
+    def _matches_page_parent(self, page: dict, parent_page_id: str | None) -> bool:
+        if parent_page_id is None:
+            return True
+        parent = page.get("parent", {})
+        return parent.get("type") == "page_id" and notion_id_equal(
+            parent.get("page_id", ""),
             parent_page_id,
         )
 
@@ -176,3 +257,13 @@ def notion_id_equal(left: str, right: str) -> bool:
 
 def title_payload(title: str) -> list[dict[str, Any]]:
     return [{"type": "text", "text": {"content": title}}]
+
+
+def page_title(page: dict) -> str:
+    properties = page.get("properties", {})
+    title_property_value = properties.get("title", {})
+    title_items = title_property_value.get("title", [])
+    if title_items:
+        return "".join(part.get("plain_text", "") for part in title_items)
+    title_items = page.get("title", [])
+    return "".join(part.get("plain_text", "") for part in title_items)

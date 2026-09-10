@@ -69,6 +69,20 @@ VIEW_SPECS = {
 }
 
 
+OVERVIEW_PAGE_TITLE = "秋招总览"
+TABLE_OVERVIEW_BACKUP_TITLE = "秋招总览（表格备份）"
+
+OVERVIEW_LINKED_VIEWS = (
+    ("applications", "投递记录", APPLICATION_OVERVIEW_FIELDS),
+    ("activity", "流程日志", ACTIVITY_OVERVIEW_FIELDS),
+    ("interviews", "面试记录", INTERVIEW_OVERVIEW_FIELDS),
+    ("review_tasks", "复习任务", REVIEW_TASK_OVERVIEW_FIELDS),
+)
+
+TEXT_OVERVIEW_START = "JOB_HUNT_AGENT_TEXT_OVERVIEW_START"
+TEXT_OVERVIEW_END = "JOB_HUNT_AGENT_TEXT_OVERVIEW_END"
+
+
 class NotionBootstrapper:
     def __init__(self, client: NotionClient) -> None:
         self.client = client
@@ -96,6 +110,7 @@ class NotionBootstrapper:
         )
         database_ids = BootstrappedDatabases(applications, activity, interviews, review_tasks)
         self.configure_readable_views(database_ids)
+        self.ensure_overview_page(parent_page_id, database_ids)
         return database_ids
 
     def rename_configured_databases(self, database_ids: BootstrappedDatabases) -> None:
@@ -125,6 +140,32 @@ class NotionBootstrapper:
                 properties=properties,
                 specs=VIEW_SPECS[key],
             )
+
+    def ensure_overview_page(
+        self,
+        parent_page_id: str,
+        database_ids: BootstrappedDatabases,
+    ) -> str:
+        page = self.client.find_page_by_title(OVERVIEW_PAGE_TITLE, parent_page_id=parent_page_id)
+        if page is None:
+            page = self.client.create_child_page(parent_page_id, OVERVIEW_PAGE_TITLE)
+        page_id = page["id"]
+        self._ensure_overview_linked_views(page_id, database_ids)
+        return page_id
+
+    def ensure_text_first_overview_page(self, parent_page_id: str) -> str:
+        page = self.client.find_page_by_title(OVERVIEW_PAGE_TITLE, parent_page_id=parent_page_id)
+        if page is None:
+            return self.client.create_child_page(parent_page_id, OVERVIEW_PAGE_TITLE)["id"]
+        children = self.client.list_block_children(page["id"])
+        if children and children[0].get("type") == "child_database":
+            self.client.update_child_page_title(page["id"], TABLE_OVERVIEW_BACKUP_TITLE)
+            return self.client.create_child_page(parent_page_id, OVERVIEW_PAGE_TITLE)["id"]
+        return page["id"]
+
+    def refresh_text_overview(self, overview_page_id: str, overview_text: str) -> None:
+        self._archive_existing_text_overview_blocks(overview_page_id)
+        self.client.append_block_children(overview_page_id, text_overview_blocks(overview_text))
 
     def _get_or_create_database(
         self,
@@ -193,6 +234,78 @@ class NotionBootstrapper:
             }
         )
 
+    def _ensure_overview_linked_views(
+        self,
+        overview_page_id: str,
+        database_ids: BootstrappedDatabases,
+    ) -> None:
+        properties_by_key = {
+            "applications": tuple(application_properties().keys()),
+            "activity": tuple(activity_properties(database_ids.applications).keys()),
+            "interviews": tuple(interview_properties(database_ids.applications).keys()),
+            "review_tasks": tuple(review_task_properties(database_ids.interviews).keys()),
+        }
+        data_source_by_key = {
+            "applications": database_ids.applications,
+            "activity": database_ids.activity,
+            "interviews": database_ids.interviews,
+            "review_tasks": database_ids.review_tasks,
+        }
+        for key, view_name, visible_properties in OVERVIEW_LINKED_VIEWS:
+            data_source_id = data_source_by_key[key]
+            properties = properties_by_key[key]
+            configuration = table_view_configuration(properties, visible_properties)
+            existing_view = self._find_overview_linked_view(
+                data_source_id=data_source_id,
+                view_name=view_name,
+                overview_page_id=overview_page_id,
+            )
+            if existing_view is not None:
+                self.client.update_view(
+                    existing_view["id"],
+                    {"name": view_name, "configuration": configuration},
+                )
+                continue
+            self.client.create_linked_database_view(
+                parent_page_id=overview_page_id,
+                data_source_id=data_source_id,
+                name=view_name,
+                configuration=configuration,
+            )
+
+    def _find_overview_linked_view(
+        self,
+        data_source_id: str,
+        view_name: str,
+        overview_page_id: str,
+    ) -> dict | None:
+        for view_summary in self.client.list_views(data_source_id=data_source_id):
+            view = self.client.retrieve_view(view_summary["id"])
+            if view.get("name") != view_name:
+                continue
+            database_id = parent_database_id(view)
+            if database_id is None:
+                continue
+            database = self.client.retrieve_database(database_id)
+            parent = database.get("parent", {})
+            if parent.get("type") == "page_id" and notion_id_equal(
+                parent.get("page_id", ""),
+                overview_page_id,
+            ):
+                return view
+        return None
+
+    def _archive_existing_text_overview_blocks(self, overview_page_id: str) -> None:
+        in_managed_section = False
+        for block in self.client.list_block_children(overview_page_id):
+            block_text = plain_block_text(block)
+            if block_text == TEXT_OVERVIEW_START:
+                in_managed_section = True
+            if in_managed_section:
+                self.client.archive_block(block["id"])
+            if block_text == TEXT_OVERVIEW_END:
+                in_managed_section = False
+
 
 def first_data_source_id(database: dict) -> str:
     data_sources = database.get("data_sources") or []
@@ -206,6 +319,10 @@ def parent_database_id(data_source: dict) -> str | None:
     if parent.get("type") == "database_id":
         return parent.get("database_id")
     return None
+
+
+def notion_id_equal(left: str, right: str) -> bool:
+    return left.replace("-", "") == right.replace("-", "")
 
 
 def find_view(views: list[dict], name: str) -> dict | None:
@@ -232,6 +349,65 @@ def table_view_configuration(
             for property_name in ordered_properties
         ],
     }
+
+
+def text_overview_blocks(overview_text: str) -> list[dict]:
+    blocks = [paragraph_block(TEXT_OVERVIEW_START)]
+    for line in overview_text.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("# "):
+            blocks.append(heading_block("heading_1", line.removeprefix("# ").strip()))
+            continue
+        if line.startswith("## "):
+            blocks.append(heading_block("heading_2", line.removeprefix("## ").strip()))
+            continue
+        if line.startswith("- "):
+            blocks.append(bulleted_list_item_block(line.removeprefix("- ").strip()))
+            continue
+        blocks.append(paragraph_block(line.strip()))
+    blocks.append(paragraph_block(TEXT_OVERVIEW_END))
+    return blocks
+
+
+def paragraph_block(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": rich_text_payload(text)},
+    }
+
+
+def heading_block(block_type: str, text: str) -> dict:
+    return {
+        "object": "block",
+        "type": block_type,
+        block_type: {"rich_text": rich_text_payload(text)},
+    }
+
+
+def bulleted_list_item_block(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "bulleted_list_item",
+        "bulleted_list_item": {"rich_text": rich_text_payload(text)},
+    }
+
+
+def rich_text_payload(text: str) -> list[dict]:
+    return [{"type": "text", "text": {"content": text[:2000]}}]
+
+
+def plain_block_text(block: dict) -> str:
+    block_type = block.get("type", "")
+    rich_text = block.get(block_type, {}).get("rich_text", [])
+    parts = []
+    for item in rich_text:
+        if "plain_text" in item:
+            parts.append(item["plain_text"])
+        else:
+            parts.append(item.get("text", {}).get("content", ""))
+    return "".join(parts)
 
 
 def application_properties() -> dict:

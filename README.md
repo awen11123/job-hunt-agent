@@ -1,51 +1,80 @@
 # Job Hunt Agent
 
-A private Notion-backed autumn recruitment tracker exposed as a Python MCP server.
+面向 AI Agent / LLM 应用工程师求职流程的本地工作台。项目代码、测试和合成示例可以公开，真实投递记录、面经、账号信息与密钥只保存在使用者自己的电脑或私有 Notion 中。
 
-The project is designed for AI Agent and LLM application engineer recruiting. Public code,
-schemas, prompts, tests, and synthetic examples live in GitHub. Real applications,
-interview notes, contacts, Notion page URLs, and API keys stay outside the repository.
+应用不依赖 Codex、Notion 或任何大模型 API，安装后可以直接在网页界面中使用：
 
-Core tools record structured applications or natural-language application notes, update
-stages, save interview notes, analyze interviews, list follow-ups across applications,
-interviews and review tasks, and generate daily or weekly reviews.
+- Excel 是投递记录的唯一数据源，不建立 SQLite 等第二份投递数据库。
+- 面经默认保存为本地 Markdown 文件和本地索引。
+- 所有写操作先展示变更预览，明确确认后才写入。
+- 写 Excel 前创建备份，并在 WPS/Excel 占用文件时停止写入。
+- Web 服务只监听 `127.0.0.1`，写接口使用进程内会话凭证保护。
+- 不配置模型时，看板、面经、复盘、本地查询和规则化投递录入仍可使用。
 
-Example natural-language entry:
+## Windows 安装
 
-```text
-今天投了 DeepSeek 的 LLM 应用工程师，内推，简历 v3，北京，AI Agent方向
+1. 在 GitHub Releases 下载最新的 `JobHuntAgent-Setup-<版本>.exe`。
+2. 双击安装，不需要管理员权限。安装完成后会在开始菜单创建 `Job Hunt Agent`。
+3. 启动后，应用会自动打开本机网页；第一次使用请进入“设置”。
+4. 在“投递 Excel”中粘贴现有 `.xlsx` 文件的完整路径，保存后即可查看投递看板。
+
+没有现成表格时，可以在 WPS 新建一个 `.xlsx`，第一行从左到右填写：`企业`、`投递岗位`、`投递日期`、`所在地`、`当前状态`、`下一节点`、`节点时间`、`岗位链接`、`备注`。模型服务和 Notion 都是可选项，不配置也能使用核心功能。
+
+完整的安装、首次配置、备份恢复、升级和卸载说明见 [Windows 使用指南](docs/windows-install.md)。
+
+## 日常使用
+
+1. 在“投递看板”查看、搜索和筛选当前流程，在“面经”和“复盘”查看本地记录。
+2. 在右侧“求职助手”输入投递变化。写入前会出现可编辑预览，只有点击“确认写入”才会修改本地文件。
+3. 不需要自然语言助手时，可以只把本项目当作 Excel 和 Markdown 的本地可视化工作台。
+4. 需要开放问答或更灵活的语义理解时，再到“设置 > 模型服务”选择服务商。支持 DeepSeek、通义千问、Moonshot、OpenAI 兼容接口和 Ollama。
+5. 需要云端查看面经时，到“设置 > Notion 面经”保存 Integration Token 和数据库 ID，然后在面经列表中逐条手动同步；同步失败可直接重试。
+
+远程模型和 Notion 都是可选项。API Key 与 Notion Token 由操作系统凭证管理器保存，设置页只显示“未配置 / 已配置 / 连接成功 / 连接失败”，不会回显凭证。Ollama 默认连接本机 `127.0.0.1`，不需要 API Key。
+
+## 开发启动
+
+需要 Python 3.12+ 和 Node.js。首次运行先安装依赖并构建前端：
+
+```powershell
+python -m pip install -e .
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
-## Local Usage
+启动本地应用：
 
-```bash
-rtk python -m pytest -q
+```powershell
+python -m job_hunt_agent.web.launcher
 ```
 
-Configure credentials through environment variables. Never commit `.env`.
+启动器会选择一个空闲的本机端口，等健康检查通过后再打开默认浏览器。首次进入后，在“设置”中填写 Excel 投递表、本地备份目录和本地面经目录。用户配置默认位于系统应用数据目录的 `JobHuntAgent/config.json`，其中不保存会话凭证或模型密钥。
 
-After sharing a private Notion parent page with your integration, bootstrap the Notion
-tables locally:
+## 数据与可选集成
 
-```bash
-rtk python scripts/notion_bootstrap.py
-```
+投递看板直接读取和更新用户指定的 `.xlsx` 文件，因此在 WPS 在线文档中查看同一文件时，不需要维护额外同步表。面经先写入本地 Markdown；Notion 仅作为可选的私有同步目标。
 
-## Privacy Boundary
+远程模型只接收用户在助手中提交的文本、固定系统指令和结构化输出定义，不会自动上传整份 Excel 或本地面经目录。若一次操作涉及面经正文，确认预览会单独标出远程数据范围。Notion 同步会发送所选面经的正文和基础信息，具体边界见 [docs/privacy.md](docs/privacy.md)，连接方式见 [docs/notion-setup.md](docs/notion-setup.md)。
 
-- Notion is the source of truth for real job-search data.
-- GitHub contains code and synthetic examples only.
-- DeepSeek and Notion secrets are read from environment variables only.
+## 隐私边界
 
-## Notion Setup
+- GitHub 只保存源代码、文档、测试和合成数据。
+- 真实 Excel、面经 Markdown、备份、日志、Notion 页面地址和联系人信息不进入仓库。
+- `.env`、API Key、Notion Token 和本机会话凭证不提交、不写入公开文件。
+- 模型与 Notion 凭证只写入操作系统凭证管理器；普通配置文件只保存凭证引用和非敏感连接参数。
+- `frontend/dist` 是本机构建产物，不提交到 GitHub；发布阶段再由构建流程打包。
+- GitHub Release 安装包由 Windows CI 从公开源码重新构建，并在发布前执行隐私扫描、完整性检查和真实安装冒烟测试。
 
-See `docs/notion-setup.md`. The bootstrap script creates the private Notion data sources
-and stores their IDs in local user environment variables. Real Notion writes are enabled
-only after the token and generated IDs are configured locally.
+## 验证
 
-## Verification
-
-```bash
-rtk python -m pytest -q
-rtk python scripts/privacy_scan.py README.md docs examples src tests
+```powershell
+python -X utf8 -m pytest -q
+cd frontend
+npm test -- --run
+npm run typecheck
+npm run build
+cd ..
+python -X utf8 scripts/privacy_scan.py README.md docs examples frontend scripts src tests
 ```
