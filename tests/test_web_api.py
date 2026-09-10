@@ -66,11 +66,32 @@ def configured_store(tmp_path: Path) -> LocalConfigStore:
 
 @pytest.fixture
 def client(configured_store: LocalConfigStore) -> TestClient:
-    return TestClient(create_app(configured_store, session_token=SESSION_TOKEN))
+    return TestClient(
+        create_app(configured_store, session_token=SESSION_TOKEN),
+        base_url="http://localhost",
+    )
 
 
 def session_headers(token: str = SESSION_TOKEN) -> dict[str, str]:
     return {"X-Job-Hunt-Session": token}
+
+
+class FailingLoadConfigStore:
+    def load(self) -> LocalAppConfig:
+        raise OSError("private-load-sentinel")
+
+
+class FailingSaveConfigStore:
+    def __init__(self, config: LocalAppConfig) -> None:
+        self.config = config
+        self.save_calls = 0
+
+    def load(self) -> LocalAppConfig:
+        return self.config
+
+    def save(self, _config: LocalAppConfig) -> None:
+        self.save_calls += 1
+        raise OSError("private-save-sentinel")
 
 
 def test_health_application_list_and_docs_are_private(client: TestClient) -> None:
@@ -86,9 +107,69 @@ def test_health_application_list_and_docs_are_private(client: TestClient) -> Non
     assert client.get("/redoc").status_code == 404
 
 
+def test_rejects_untrusted_host_before_serving_local_config(
+    configured_store: LocalConfigStore,
+) -> None:
+    app = create_app(configured_store, session_token=SESSION_TOKEN)
+    local_client = TestClient(app, base_url="http://127.0.0.1")
+    hostile_client = TestClient(app, base_url="http://attacker.example")
+
+    assert local_client.get("/api/config").status_code == 200
+    response = hostile_client.get("/api/config")
+
+    assert response.status_code == 400
+    assert str(configured_store.path) not in response.text
+
+
+def test_config_load_failure_returns_safe_conflict() -> None:
+    client = TestClient(
+        create_app(FailingLoadConfigStore(), session_token=SESSION_TOKEN),
+        base_url="http://localhost",
+        raise_server_exceptions=False,
+    )
+
+    response = client.get("/api/config")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "config_unavailable",
+        "message": "本地配置暂时不可用。",
+    }
+    assert "private-load-sentinel" not in response.text
+
+
+def test_config_save_failure_is_authenticated_and_returns_safe_conflict(
+    tmp_path: Path,
+) -> None:
+    config = LocalAppConfig.defaults(tmp_path / "app-data")
+    store = FailingSaveConfigStore(config)
+    client = TestClient(
+        create_app(store, session_token=SESSION_TOKEN),
+        base_url="http://localhost",
+        raise_server_exceptions=False,
+    )
+
+    unauthenticated = client.put("/api/config", json=config.model_dump(mode="json"))
+    response = client.put(
+        "/api/config",
+        headers=session_headers(),
+        json=config.model_dump(mode="json"),
+    )
+
+    assert unauthenticated.status_code == 401
+    assert store.save_calls == 1
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "config_unavailable",
+        "message": "本地配置暂时不可用。",
+    }
+    assert "private-save-sentinel" not in response.text
+
+
 def test_app_starts_without_excel_and_lists_return_safe_conflict(tmp_path: Path) -> None:
     client = TestClient(
-        create_app(build_config_store(tmp_path, configured=False), session_token=SESSION_TOKEN)
+        create_app(build_config_store(tmp_path, configured=False), session_token=SESSION_TOKEN),
+        base_url="http://localhost",
     )
 
     response = client.get("/api/applications")
@@ -104,7 +185,10 @@ def test_unavailable_excel_returns_safe_conflict(tmp_path: Path) -> None:
     config = store.load()
     config.excel_path = tmp_path / "missing-private-name.xlsx"
     store.save(config)
-    client = TestClient(create_app(store, session_token=SESSION_TOKEN))
+    client = TestClient(
+        create_app(store, session_token=SESSION_TOKEN),
+        base_url="http://localhost",
+    )
 
     response = client.get("/api/applications")
 
@@ -115,7 +199,10 @@ def test_unavailable_excel_returns_safe_conflict(tmp_path: Path) -> None:
 
 def test_config_is_whitelisted_persisted_and_refreshes_services(tmp_path: Path) -> None:
     store = build_config_store(tmp_path, configured=False)
-    client = TestClient(create_app(store, session_token=SESSION_TOKEN))
+    client = TestClient(
+        create_app(store, session_token=SESSION_TOKEN),
+        base_url="http://localhost",
+    )
     workbook_path = build_tracker(tmp_path / "later.xlsx")
     saved = store.load().model_copy(update={"excel_path": workbook_path})
 
@@ -281,7 +368,10 @@ def test_interviews_list_and_optional_application_filter(
         ),
         operation_id="second-interview",
     )
-    client = TestClient(create_app(configured_store, session_token=SESSION_TOKEN))
+    client = TestClient(
+        create_app(configured_store, session_token=SESSION_TOKEN),
+        base_url="http://localhost",
+    )
 
     all_records = client.get("/api/interviews")
     filtered = client.get("/api/interviews", params={"application_id": "app-first"})

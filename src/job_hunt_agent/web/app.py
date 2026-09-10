@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from job_hunt_agent.actions import (
     ActionDraft,
@@ -39,6 +40,13 @@ def _raise_resource_error(error: LocalResourceError) -> None:
     ) from None
 
 
+def _raise_config_unavailable() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=_detail("config_unavailable", "本地配置暂时不可用。"),
+    ) from None
+
+
 def _raise_draft_state_error(error: ValueError) -> None:
     message = str(error)
     if message == "Invalid confirmation token":
@@ -69,11 +77,17 @@ def build_api_router(services: WebServices) -> APIRouter:
 
     @router.get("/config", response_model=LocalAppConfig)
     def get_config() -> LocalAppConfig:
-        return services.load_config()
+        try:
+            return services.load_config()
+        except (OSError, ValueError):
+            _raise_config_unavailable()
 
     @router.put("/config", response_model=LocalAppConfig)
     def put_config(config: LocalAppConfig, _session: SessionRequired) -> LocalAppConfig:
-        return services.save_config(config)
+        try:
+            return services.save_config(config)
+        except (OSError, ValueError):
+            _raise_config_unavailable()
 
     @router.get("/applications", response_model=list[TrackerApplication])
     def list_applications() -> list[TrackerApplication]:
@@ -160,6 +174,10 @@ def create_app(
     session_token: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Job Hunt Agent", docs_url=None, redoc_url=None)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["127.0.0.1", "localhost"],
+    )
     app.state.session_token = session_token or secrets.token_urlsafe(32)
     app.state.services = build_services(config_store)
 
