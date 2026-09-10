@@ -417,11 +417,11 @@ rtk proxy git commit -m "feat: expose local web API"
 - Create: `frontend/src/styles.css`
 - Create: `frontend/src/App.test.tsx`
 
-- [ ] **Step 1: Add the frontend package manifest**
+- [x] **Step 1: Add the frontend package manifest**
 
 Use React, TypeScript, Vite, Vitest, Testing Library, and `lucide-react`. Add scripts `dev`, `build`, `test`, and `typecheck`.
 
-- [ ] **Step 2: Write the failing application-shell test**
+- [x] **Step 2: Write the failing application-shell test**
 
 ```tsx
 it("renders the operational navigation", () => {
@@ -433,7 +433,7 @@ it("renders the operational navigation", () => {
 });
 ```
 
-- [ ] **Step 3: Install dependencies and verify RED**
+- [x] **Step 3: Install dependencies and verify RED**
 
 Run: `rtk proxy npm install`
 
@@ -441,7 +441,7 @@ Run: `rtk proxy npm test -- --run`
 
 Expected: FAIL because the application shell is not implemented.
 
-- [ ] **Step 4: Implement the typed API client and shell**
+- [x] **Step 4: Implement the typed API client and shell**
 
 ```ts
 export interface JobHuntApi {
@@ -454,7 +454,7 @@ export interface JobHuntApi {
 
 Implement a compact header, tab navigation, main work surface, and collapsible assistant panel. Keep all dimensions stable and use Lucide icons for icon buttons.
 
-- [ ] **Step 5: Run frontend tests and type checks**
+- [x] **Step 5: Run frontend tests and type checks**
 
 Run: `rtk proxy npm test -- --run`
 
@@ -462,7 +462,7 @@ Run: `rtk proxy npm run typecheck`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk proxy git add frontend
