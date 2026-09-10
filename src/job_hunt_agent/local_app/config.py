@@ -24,6 +24,8 @@ class LocalAppConfig(BaseModel):
     model_base_url: str | None = None
     model_name: str | None = None
     model_credential_ref: str | None = None
+    notion_credential_ref: str | None = None
+    notion_interviews_database_id: str | None = None
 
     @field_validator("excel_path", "backup_dir", "interview_dir", mode="before")
     @classmethod
@@ -41,7 +43,14 @@ class LocalAppConfig(BaseModel):
             return value
         return value
 
-    @field_validator("model_base_url", "model_name", "model_credential_ref", mode="before")
+    @field_validator(
+        "model_base_url",
+        "model_name",
+        "model_credential_ref",
+        "notion_credential_ref",
+        "notion_interviews_database_id",
+        mode="before",
+    )
     @classmethod
     def blank_optional_model_setting_becomes_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():

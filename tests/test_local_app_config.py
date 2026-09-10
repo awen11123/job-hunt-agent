@@ -33,6 +33,8 @@ def test_local_config_round_trip_only_serializes_settings(tmp_path: Path) -> Non
         "model_base_url",
         "model_name",
         "model_credential_ref",
+        "notion_credential_ref",
+        "notion_interviews_database_id",
     }
     assert all(term not in serialized.lower() for term in ("token", "api_key", "secret"))
 
@@ -140,6 +142,8 @@ def test_defaults_are_below_supplied_app_data_root(tmp_path: Path) -> None:
     assert config.model_base_url is None
     assert config.model_name is None
     assert config.model_credential_ref is None
+    assert config.notion_credential_ref is None
+    assert config.notion_interviews_database_id is None
 
 
 def test_save_creates_parent_directory(tmp_path: Path) -> None:

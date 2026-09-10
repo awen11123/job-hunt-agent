@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from job_hunt_agent.interviews import LocalInterviewDraft, LocalInterviewStore
 from job_hunt_agent.local_app.config import LocalAppConfig, LocalConfigStore
 from job_hunt_agent.web import create_app
+from job_hunt_agent.web.schemas import PublicLocalConfig
 
 
 SESSION_TOKEN = "test-session-token"
@@ -149,11 +150,12 @@ def test_config_save_failure_is_authenticated_and_returns_safe_conflict(
         raise_server_exceptions=False,
     )
 
-    unauthenticated = client.put("/api/config", json=config.model_dump(mode="json"))
+    public_config = PublicLocalConfig.from_config(config).model_dump(mode="json")
+    unauthenticated = client.put("/api/config", json=public_config)
     response = client.put(
         "/api/config",
         headers=session_headers(),
-        json=config.model_dump(mode="json"),
+        json=public_config,
     )
 
     assert unauthenticated.status_code == 401
@@ -205,21 +207,22 @@ def test_config_is_whitelisted_persisted_and_refreshes_services(tmp_path: Path) 
     )
     workbook_path = build_tracker(tmp_path / "later.xlsx")
     saved = store.load().model_copy(update={"excel_path": workbook_path})
+    public_config = PublicLocalConfig.from_config(saved).model_dump(mode="json")
 
     get_response = client.get("/api/config")
-    missing = client.put("/api/config", json=saved.model_dump(mode="json"))
+    missing = client.put("/api/config", json=public_config)
     wrong = client.put(
         "/api/config",
         headers=session_headers("wrong-session-token"),
-        json=saved.model_dump(mode="json"),
+        json=public_config,
     )
     updated = client.put(
         "/api/config",
         headers=session_headers(),
-        json=saved.model_dump(mode="json"),
+        json=public_config,
     )
 
-    assert set(get_response.json()) == set(LocalAppConfig.model_fields)
+    assert set(get_response.json()) == set(PublicLocalConfig.model_fields)
     assert missing.status_code == 401
     assert wrong.status_code == 403
     assert "wrong-session-token" not in wrong.text

@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from job_hunt_agent.actions import (
@@ -19,19 +19,39 @@ from job_hunt_agent.actions import (
     ActionExecutionError,
     UnsupportedInputError,
 )
+from job_hunt_agent.ai import (
+    ChatMessage,
+    InvalidActionPlanError,
+    LLMProviderError,
+    UnsupportedActionError,
+)
+from job_hunt_agent.ai.presets import provider_presets
 from job_hunt_agent.excel import TrackerApplication
 from job_hunt_agent.interviews import LocalInterviewRecord
 from job_hunt_agent.local_app.config import LocalAppConfig, LocalConfigStore
+from job_hunt_agent.local_app.secrets import SecretStore
+from job_hunt_agent.notion import NotionClient
 from job_hunt_agent.web.dependencies import (
     LocalResourceError,
+    NotionClientFactory,
+    ProviderFactory,
     WebServices,
     build_services,
     require_session,
 )
 from job_hunt_agent.web.schemas import (
+    AssistantMessage,
     ConfirmActionRequest,
+    IntegrationSettingsView,
+    ModelConnectionResult,
+    ModelSettingsRequest,
+    ModelSettingsView,
     ModifyActionRequest,
+    NotionConnectionResult,
+    NotionSettingsRequest,
+    NotionSettingsView,
     ProposeActionRequest,
+    PublicLocalConfig,
 )
 
 
@@ -40,6 +60,10 @@ SessionRequired = Annotated[None, Depends(require_session)]
 
 class _InvalidFrontendIndex(ValueError):
     pass
+
+
+class _ModelProbe(BaseModel):
+    ok: bool
 
 
 @dataclass(frozen=True)
@@ -148,6 +172,43 @@ def _raise_draft_state_error(error: ValueError) -> None:
     ) from None
 
 
+def _credential_is_configured(services: WebServices, reference: str | None) -> bool:
+    if reference is None:
+        return False
+    try:
+        return services.secret_store.get(reference) is not None
+    except Exception:
+        return False
+
+
+def _model_settings_view(services: WebServices) -> ModelSettingsView:
+    config = services.load_config()
+    preset = provider_presets()[config.model_provider]
+    return ModelSettingsView(
+        enabled=config.model_enabled,
+        provider=config.model_provider,
+        base_url=str(config.model_base_url or preset.base_url).rstrip("/"),
+        model=config.model_name or preset.model,
+        credential_configured=_credential_is_configured(
+            services,
+            config.model_credential_ref,
+        ),
+        requires_api_key=preset.requires_api_key,
+    )
+
+
+def _notion_settings_view(services: WebServices) -> NotionSettingsView:
+    config = services.load_config()
+    return NotionSettingsView(
+        enabled=config.notion_enabled,
+        credential_configured=_credential_is_configured(
+            services,
+            config.notion_credential_ref,
+        ),
+        database_configured=config.notion_interviews_database_id is not None,
+    )
+
+
 def build_api_router(services: WebServices) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -155,19 +216,128 @@ def build_api_router(services: WebServices) -> APIRouter:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @router.get("/config", response_model=LocalAppConfig)
-    def get_config() -> LocalAppConfig:
+    @router.get("/config", response_model=PublicLocalConfig)
+    def get_config() -> PublicLocalConfig:
         try:
-            return services.load_config()
+            return PublicLocalConfig.from_config(services.load_config())
         except (OSError, ValueError):
             _raise_config_unavailable()
 
-    @router.put("/config", response_model=LocalAppConfig)
-    def put_config(config: LocalAppConfig, _session: SessionRequired) -> LocalAppConfig:
+    @router.put("/config", response_model=PublicLocalConfig)
+    def put_config(
+        config: PublicLocalConfig,
+        _session: SessionRequired,
+    ) -> PublicLocalConfig:
         try:
-            return services.save_config(config)
+            current = services.load_config()
+            merged = LocalAppConfig.model_validate(
+                {**current.model_dump(mode="python"), **config.model_dump(mode="python")}
+            )
+            return PublicLocalConfig.from_config(services.save_config(merged))
         except (OSError, ValueError):
             _raise_config_unavailable()
+
+    @router.get("/settings", response_model=IntegrationSettingsView)
+    def get_settings() -> IntegrationSettingsView:
+        try:
+            return IntegrationSettingsView(
+                model=_model_settings_view(services),
+                notion=_notion_settings_view(services),
+            )
+        except (OSError, ValueError):
+            _raise_config_unavailable()
+
+    @router.put("/settings/model", response_model=ModelSettingsView)
+    def put_model_settings(
+        request: ModelSettingsRequest,
+        _session: SessionRequired,
+    ) -> ModelSettingsView:
+        try:
+            current = services.load_config()
+            preset = provider_presets()[request.provider]
+            credential_ref = (
+                None
+                if not preset.requires_api_key
+                else f"model:{request.provider}:default"
+            )
+            if request.api_key is not None and credential_ref is not None:
+                services.secret_store.set(credential_ref, request.api_key)
+            updated = LocalAppConfig.model_validate(
+                {
+                    **current.model_dump(mode="python"),
+                    "model_enabled": request.enabled,
+                    "model_provider": request.provider,
+                    "model_base_url": str(request.base_url or preset.base_url).rstrip("/"),
+                    "model_name": request.model or preset.model,
+                    "model_credential_ref": credential_ref,
+                }
+            )
+            services.save_config(updated)
+            return _model_settings_view(services)
+        except (OSError, RuntimeError, ValueError):
+            _raise_config_unavailable()
+
+    @router.post("/settings/model/test", response_model=ModelConnectionResult)
+    def test_model_settings(_session: SessionRequired) -> ModelConnectionResult:
+        try:
+            result = services.model_provider().complete_structured(
+                [
+                    ChatMessage(
+                        role="system",
+                        content='Return exactly {"ok": true} as JSON.',
+                    )
+                ],
+                _ModelProbe,
+            )
+            if not result.ok:
+                raise LLMProviderError("Model capability probe failed")
+            return ModelConnectionResult(status="connected", structured_output=True)
+        except (LLMProviderError, LocalResourceError, OSError, RuntimeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_detail("model_unavailable", "模型服务暂时不可用。"),
+            ) from None
+
+    @router.put("/settings/notion", response_model=NotionSettingsView)
+    def put_notion_settings(
+        request: NotionSettingsRequest,
+        _session: SessionRequired,
+    ) -> NotionSettingsView:
+        try:
+            current = services.load_config()
+            credential_ref = current.notion_credential_ref
+            if request.token is not None:
+                credential_ref = "notion:default"
+                services.secret_store.set(credential_ref, request.token)
+            database_id = (
+                request.interviews_database_id
+                if request.interviews_database_id is not None
+                else current.notion_interviews_database_id
+            )
+            updated = LocalAppConfig.model_validate(
+                {
+                    **current.model_dump(mode="python"),
+                    "notion_enabled": request.enabled,
+                    "notion_credential_ref": credential_ref,
+                    "notion_interviews_database_id": database_id,
+                }
+            )
+            services.save_config(updated)
+            return _notion_settings_view(services)
+        except (OSError, RuntimeError, ValueError):
+            _raise_config_unavailable()
+
+    @router.post("/settings/notion/test", response_model=NotionConnectionResult)
+    def test_notion_settings(_session: SessionRequired) -> NotionConnectionResult:
+        try:
+            client, database_id = services.notion_client()
+            client.retrieve_data_source(database_id)
+            return NotionConnectionResult(status="connected")
+        except (LocalResourceError, OSError, RuntimeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_detail("notion_unavailable", "Notion 暂时不可用。"),
+            ) from None
 
     @router.get("/applications", response_model=list[TrackerApplication])
     def list_applications() -> list[TrackerApplication]:
@@ -193,15 +363,52 @@ def build_api_router(services: WebServices) -> APIRouter:
                 detail=_detail("interviews_unavailable", "本地面经暂时不可用。"),
             ) from None
 
-    @router.post("/actions/propose", response_model=ActionDraft)
-    def propose_action(request: ProposeActionRequest) -> ActionDraft:
+    @router.post("/interviews/{interview_id}/sync", response_model=LocalInterviewRecord)
+    def sync_interview(
+        interview_id: str,
+        _session: SessionRequired,
+    ) -> LocalInterviewRecord:
         try:
-            return services.action_service.propose_application(request.text)
+            return services.interview_sync_service().retry(interview_id)
+        except KeyError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_detail("interview_not_found", "未找到面经记录。"),
+            ) from None
+        except LocalResourceError as error:
+            _raise_resource_error(error)
+        except (OSError, RuntimeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_detail("interview_sync_failed", "面经同步暂时失败。"),
+            ) from None
+
+    @router.post("/actions/propose", response_model=ActionDraft | AssistantMessage)
+    def propose_action(request: ProposeActionRequest) -> ActionDraft | AssistantMessage:
+        try:
+            result = services.action_planner().propose(request.text)
+            if isinstance(result, ActionDraft):
+                return result
+            if isinstance(result, dict) and isinstance(result.get("message"), str):
+                return AssistantMessage(message=result["message"])
+            raise UnsupportedActionError("Planner returned an unsupported result")
         except UnsupportedInputError:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=_detail("unsupported_input", "暂时无法安全生成写入预览。"),
             ) from None
+        except (InvalidActionPlanError, UnsupportedActionError):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=_detail("unsupported_action", "模型未能生成可安全执行的操作。"),
+            ) from None
+        except LLMProviderError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_detail("model_unavailable", "模型服务暂时不可用。"),
+            ) from None
+        except LocalResourceError as error:
+            _raise_resource_error(error)
 
     @router.get("/actions/{draft_id}", response_model=ActionDraft)
     def get_action(draft_id: str) -> ActionDraft:
@@ -314,6 +521,10 @@ def create_app(
     config_store: LocalConfigStore,
     session_token: str | None = None,
     static_dir: Path | None = None,
+    *,
+    secret_store: SecretStore | None = None,
+    provider_factory: ProviderFactory | None = None,
+    notion_client_factory: NotionClientFactory | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Job Hunt Agent", docs_url=None, redoc_url=None)
     app.add_middleware(
@@ -321,7 +532,14 @@ def create_app(
         allowed_hosts=["127.0.0.1", "localhost"],
     )
     app.state.session_token = session_token or secrets.token_urlsafe(32)
-    app.state.services = build_services(config_store)
+    service_options = {}
+    if secret_store is not None:
+        service_options["secret_store"] = secret_store
+    if provider_factory is not None:
+        service_options["provider_factory"] = provider_factory
+    if notion_client_factory is not None:
+        service_options["notion_client_factory"] = notion_client_factory
+    app.state.services = build_services(config_store, **service_options)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(_request, _error) -> JSONResponse:
