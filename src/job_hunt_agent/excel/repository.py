@@ -250,7 +250,7 @@ class ExcelApplicationRepository:
 
         with _exclusive_workbook_lock(self.workbook_path):
             self._mutate(mutate)
-            return self.get_application(record.id)
+            return record.model_copy(deep=True)
 
     def update_application(
         self,
@@ -258,10 +258,10 @@ class ExcelApplicationRepository:
         patch: TrackerApplicationPatch,
     ) -> TrackerApplication:
         changes = patch.model_dump(mode="python", exclude_unset=True)
-        updated_id: str | None = None
+        updated_record: TrackerApplication | None = None
 
         def mutate(sheet: Worksheet) -> None:
-            nonlocal updated_id
+            nonlocal updated_record
             existing = self._located_applications(sheet)
             located = next(
                 (item for item in existing if item.record.id == application_id),
@@ -307,12 +307,12 @@ class ExcelApplicationRepository:
                 if is_closed:
                     self._clear_strike(sheet, located.row)
             self._update_company_total(sheet)
-            updated_id = prospective_id
+            updated_record = prospective
 
         with _exclusive_workbook_lock(self.workbook_path):
             self._mutate(mutate)
-            assert updated_id is not None
-            return self.get_application(updated_id)
+            assert updated_record is not None
+            return updated_record.model_copy(deep=True)
 
     def _load_source(self):
         try:

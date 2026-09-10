@@ -28,6 +28,7 @@ _WRITE_REQUEST_PATTERN = re.compile(
 _QUESTION_PATTERN = re.compile(
     r"(?:哪个|哪些|什么|吗|是否|多少|怎么|如何|为何|为什么|[?？])"
 )
+_URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
 _STAGE_STATUS = {
     RecruitingStage.TO_APPLY: "待投递",
     RecruitingStage.APPLIED: "已投递",
@@ -91,7 +92,10 @@ class ActionDraftService:
         self._lock = threading.RLock()
 
     def propose_application(self, text: str) -> ActionDraft:
-        if _QUESTION_PATTERN.search(text) or not _WRITE_REQUEST_PATTERN.search(text.strip()):
+        question_text = _URL_PATTERN.sub("", text)
+        if _QUESTION_PATTERN.search(question_text) or not _WRITE_REQUEST_PATTERN.search(
+            text.strip()
+        ):
             raise UnsupportedInputError("Input is not an unambiguous application write request")
 
         today = self._now().date()

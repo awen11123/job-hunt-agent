@@ -443,6 +443,34 @@ def test_create_makes_exact_backup_and_preserves_layout(tmp_path: Path) -> None:
     after.close()
 
 
+def test_create_returns_committed_record_without_post_commit_reread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    backup_dir = tmp_path / "backups"
+    repository = ExcelApplicationRepository(workbook_path, backup_dir)
+
+    def fail_get_application(application_id: str):
+        raise RuntimeError(f"sensitive reread failure: {application_id}")
+
+    monkeypatch.setattr(repository, "get_application", fail_get_application)
+
+    created = repository.create_application(
+        TrackerApplicationDraft(
+            company="无二次读取公司",
+            role="Agent 平台工程师",
+            applied_date=date(2026, 9, 10),
+        )
+    )
+
+    persisted = ExcelApplicationRepository(workbook_path, backup_dir).get_application(
+        created.id
+    )
+    assert created.company == "无二次读取公司"
+    assert persisted == created
+
+
 def test_create_closed_application_places_it_first_below_existing_divider(
     tmp_path: Path,
 ) -> None:
@@ -519,6 +547,33 @@ def test_update_changes_only_requested_fields_in_place(tmp_path: Path) -> None:
     assert sheet["H2"].value == "查看岗位"
     assert sheet["H2"].hyperlink.target == "https://example.com/updated"
     workbook.close()
+
+
+def test_update_returns_new_stable_id_without_post_commit_reread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    backup_dir = tmp_path / "backups"
+    repository = ExcelApplicationRepository(workbook_path, backup_dir)
+    target = record_by_role(repository, "Agent 工程师")
+
+    def fail_get_application(application_id: str):
+        raise RuntimeError(f"sensitive reread failure: {application_id}")
+
+    monkeypatch.setattr(repository, "get_application", fail_get_application)
+
+    updated = repository.update_application(
+        target.id,
+        TrackerApplicationPatch(role="Agent 架构工程师"),
+    )
+
+    persisted_repository = ExcelApplicationRepository(workbook_path, backup_dir)
+    assert updated.id != target.id
+    assert updated.role == "Agent 架构工程师"
+    assert persisted_repository.get_application(updated.id) == updated
+    with pytest.raises(KeyError):
+        persisted_repository.get_application(target.id)
 
 
 def test_reopening_closed_application_moves_it_to_top_and_preserves_row(

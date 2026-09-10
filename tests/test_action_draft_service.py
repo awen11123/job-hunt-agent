@@ -164,6 +164,31 @@ def test_propose_application_creates_preview_without_writing() -> None:
     assert interview_store.saved == []
 
 
+def test_propose_application_ignores_url_query_during_question_detection() -> None:
+    service, repository, _ = configured_service()
+    job_url = "https://example.com/job?jobUnionId=4694862735&highlightType=campus"
+
+    draft = service.propose_application(
+        f"今天投了美团的 Agent 工程师，岗位链接：{job_url}"
+    )
+
+    assert draft.payload["company"] == "美团"
+    assert draft.payload["role"] == "Agent 工程师"
+    assert repository.created == []
+
+
+def test_propose_application_rejects_body_question_even_with_url() -> None:
+    service, repository, _ = configured_service()
+
+    with pytest.raises(UnsupportedInputError):
+        service.propose_application(
+            "今天投了哪个公司的 Agent 工程师，"
+            "https://example.com/job?jobUnionId=4694862735"
+        )
+
+    assert repository.created == []
+
+
 @pytest.mark.parametrize(
     "text",
     [
