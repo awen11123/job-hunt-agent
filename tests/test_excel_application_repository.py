@@ -1,0 +1,417 @@
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+import pytest
+from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
+from openpyxl.styles import Alignment, Font, PatternFill
+from pydantic import ValidationError
+
+import job_hunt_agent.excel.repository as repository_module
+from job_hunt_agent.excel.models import (
+    TrackerApplicationDraft,
+    TrackerApplicationPatch,
+)
+from job_hunt_agent.excel.repository import ExcelApplicationRepository
+
+
+HEADERS = (
+    "企业",
+    "投递岗位",
+    "投递日期",
+    "所在地",
+    "当前状态",
+    "下一节点",
+    "节点时间",
+    "岗位链接",
+    "备注",
+)
+DIVIDER_COLOR = "E7E6E3"
+
+
+def build_synthetic_tracker(path: Path, *, include_divider: bool = True) -> Path:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "投递总览"
+    sheet.append(HEADERS)
+    sheet.append(
+        [
+            "示例科技",
+            "Agent 工程师",
+            date(2026, 9, 8),
+            "杭州",
+            "已投递",
+            "等待筛选",
+            None,
+            "查看岗位",
+            "保留备注",
+        ]
+    )
+    sheet.append(
+        [
+            "示例集团",
+            "后端工程师",
+            date(2026, 9, 6),
+            "上海",
+            "笔试",
+            "等待笔试结果",
+            date(2026, 9, 10),
+            "查看岗位",
+            "第一志愿",
+        ]
+    )
+    sheet.append(
+        [
+            None,
+            "平台工程师",
+            date(2026, 9, 7),
+            "北京",
+            "面试",
+            "准备一面",
+            date(2026, 9, 12),
+            None,
+            "第二志愿",
+        ]
+    )
+    if include_divider:
+        sheet.append([None] * len(HEADERS))
+        divider_row = sheet.max_row
+        for cell in sheet[divider_row]:
+            cell.fill = PatternFill("solid", fgColor=DIVIDER_COLOR)
+            cell.font = Font(name="微软雅黑", size=9)
+    sheet.append(
+        [
+            "旧公司",
+            "旧岗位",
+            date(2026, 8, 20),
+            "深圳",
+            "简历未通过",
+            "结束",
+            None,
+            "查看岗位",
+            "历史记录",
+        ]
+    )
+    sheet.append([None] * len(HEADERS))
+    sheet.append(["投递公司总数：3", None, None, None, None, None, None, None, None])
+
+    sheet["H2"].hyperlink = "https://example.com/job"
+    sheet["H3"].hyperlink = "https://example.com/group"
+    closed_row = 6 if include_divider else 5
+    sheet.cell(closed_row, 8).hyperlink = "https://example.com/old"
+    sheet.merge_cells("A3:A4")
+    sheet.merge_cells("H3:H4")
+
+    sheet["A2"].fill = PatternFill("solid", fgColor="C6E0B4")
+    sheet["A3"].fill = PatternFill("solid", fgColor="DDEBF7")
+    sheet["B2"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    sheet["H3"].alignment = Alignment(horizontal="center", vertical="center")
+    sheet["I2"].comment = Comment("必须保留", "tester")
+    for row in range(2, sheet.max_row + 1):
+        sheet.row_dimensions[row].height = 31 + row
+    sheet.column_dimensions["B"].width = 36
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:I{sheet.max_row}"
+
+    metadata = workbook.create_sheet("只读元数据")
+    metadata["A1"] = "不要修改"
+    workbook.save(path)
+    workbook.close()
+    return path
+
+
+def record_by_role(repository: ExcelApplicationRepository, role: str):
+    return next(record for record in repository.list_applications() if record.role == role)
+
+
+def test_repository_lists_newest_first_and_inherits_merged_company_and_link(
+    tmp_path: Path,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+
+    records = repository.list_applications()
+
+    assert [record.role for record in records] == [
+        "Agent 工程师",
+        "平台工程师",
+        "后端工程师",
+        "旧岗位",
+    ]
+    platform = records[1]
+    assert platform.company == "示例集团"
+    assert str(platform.job_url) == "https://example.com/group"
+    assert records[0].notes == "保留备注"
+
+
+def test_stable_id_does_not_depend_on_row_number(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    original = record_by_role(repository, "Agent 工程师")
+
+    repository.create_application(
+        TrackerApplicationDraft(
+            company="新公司",
+            role="新岗位",
+            applied_date=date(2026, 9, 9),
+        )
+    )
+
+    shifted = record_by_role(repository, "Agent 工程师")
+    assert shifted.id == original.id
+    assert shifted.id.startswith("app_")
+    assert len(shifted.id) == 20
+
+
+def test_create_rejects_normalized_duplicate_without_writing(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    original = workbook_path.read_bytes()
+
+    with pytest.raises(ValueError, match="重复"):
+        repository.create_application(
+            TrackerApplicationDraft(
+                company="  示例科技  ",
+                role="AGENT   工程师",
+                applied_date=date(2026, 9, 8),
+            )
+        )
+
+    assert workbook_path.read_bytes() == original
+    assert not (tmp_path / "backups").exists()
+
+
+def test_create_makes_exact_backup_and_preserves_layout(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    backup_dir = tmp_path / "backups"
+    original_bytes = workbook_path.read_bytes()
+    before = load_workbook(workbook_path)
+    before_sheet = before["投递总览"]
+    expected_style = before_sheet["A2"]._style
+    expected_row_height = before_sheet.row_dimensions[2].height
+    before.close()
+    repository = ExcelApplicationRepository(workbook_path, backup_dir)
+
+    created = repository.create_application(
+        TrackerApplicationDraft(
+            company="示例旅行",
+            role="Agent 平台工程师",
+            applied_date=date(2026, 9, 9),
+            job_url="https://example.com/new",
+        )
+    )
+
+    backups = list(backup_dir.glob("*.xlsx"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original_bytes
+    assert created == repository.get_application(created.id)
+
+    after = load_workbook(workbook_path)
+    sheet = after["投递总览"]
+    assert sheet["A2"].value == "示例旅行"
+    assert sheet["H2"].value == "查看岗位"
+    assert sheet["H2"].hyperlink.target == "https://example.com/new"
+    assert sheet["A2"]._style == expected_style
+    assert sheet.row_dimensions[2].height == expected_row_height
+    assert sheet["A3"].value == "示例科技"
+    assert sheet["I3"].comment.text == "必须保留"
+    assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} == {
+        "A4:A5",
+        "H4:H5",
+    }
+    assert sheet["H4"].hyperlink.target == "https://example.com/group"
+    assert sheet["A6"].value is None
+    assert sheet["A6"].fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+    assert sheet["A9"].value == "投递公司总数：4"
+    assert sheet.freeze_panes == "A2"
+    assert sheet.auto_filter.ref == "A1:I9"
+    assert sheet.column_dimensions["B"].width == 36
+    assert after["只读元数据"]["A1"].value == "不要修改"
+    after.close()
+
+
+def test_update_changes_only_requested_fields_in_place(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "Agent 工程师")
+    before = load_workbook(workbook_path)
+    expected_style = before["投递总览"]["B2"]._style
+    before.close()
+
+    updated = repository.update_application(
+        target.id,
+        TrackerApplicationPatch(
+            location="南京",
+            next_step="等待面试",
+            job_url="https://example.com/updated",
+        ),
+    )
+
+    assert updated.id == target.id
+    assert updated.location == "南京"
+    assert updated.next_step == "等待面试"
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    assert sheet["A2"].value == "示例科技"
+    assert sheet["B2"]._style == expected_style
+    assert sheet["I2"].value == "保留备注"
+    assert sheet["I2"].comment.text == "必须保留"
+    assert sheet["H2"].value == "查看岗位"
+    assert sheet["H2"].hyperlink.target == "https://example.com/updated"
+    workbook.close()
+
+
+def test_closing_one_merged_role_splits_it_and_moves_it_below_existing_divider(
+    tmp_path: Path,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "平台工程师")
+    before = load_workbook(workbook_path)
+    expected_company_fill = before["投递总览"]["A3"].fill.fgColor.rgb
+    expected_link_alignment = before["投递总览"]["H3"].alignment.horizontal
+    before.close()
+
+    updated = repository.update_application(
+        target.id,
+        TrackerApplicationPatch(status="流程结束", next_step="结束"),
+    )
+
+    assert updated.status == "流程结束"
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    assert sheet["B3"].value == "后端工程师"
+    assert sheet["A3"].value == "示例集团"
+    assert sheet["H3"].hyperlink.target == "https://example.com/group"
+    assert sheet["A4"].value is None
+    assert sheet["A4"].fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+    assert sheet["B5"].value == "平台工程师"
+    assert sheet["A5"].value == "示例集团"
+    assert sheet["H5"].value == "查看岗位"
+    assert sheet["H5"].hyperlink.target == "https://example.com/group"
+    assert sheet["A5"].fill.fgColor.rgb == expected_company_fill
+    assert sheet["H5"].alignment.horizontal == expected_link_alignment
+    assert sheet["B6"].value == "旧岗位"
+    assert not any(
+        sheet.cell(5, column).font.strike for column in range(1, len(HEADERS) + 1)
+    )
+    assert not sheet.merged_cells.ranges
+    assert sheet["A8"].value == "投递公司总数：3"
+    workbook.close()
+
+
+def test_first_closed_update_creates_gray_divider(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(
+        tmp_path / "tracker.xlsx",
+        include_divider=False,
+    )
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "Agent 工程师")
+
+    repository.update_application(
+        target.id,
+        TrackerApplicationPatch(status="主动放弃"),
+    )
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    assert sheet["B3"].value == "平台工程师"
+    assert all(sheet.cell(4, column).value is None for column in range(1, 10))
+    assert all(
+        sheet.cell(4, column).fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+        for column in range(1, 10)
+    )
+    assert all(sheet.cell(4, column).font.sz == 9 for column in range(1, 10))
+    assert sheet["B5"].value == "Agent 工程师"
+    assert sheet["H2"].hyperlink.target == "https://example.com/group"
+    assert sheet["A8"].value == "投递公司总数：3"
+    workbook.close()
+
+
+def test_models_reject_empty_patch_and_unknown_fields() -> None:
+    assert TrackerApplicationDraft(company="甲", role="乙").applied_date == date.today()
+    assert TrackerApplicationDraft(company="甲", role="乙").status == "已投递"
+    assert TrackerApplicationDraft(company="甲", role="乙").next_step == "等待筛选"
+
+    with pytest.raises(ValidationError, match="empty patch"):
+        TrackerApplicationPatch()
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        TrackerApplicationPatch(unknown="value")
+
+
+def test_unknown_id_raises_key_error(tmp_path: Path) -> None:
+    repository = ExcelApplicationRepository(
+        build_synthetic_tracker(tmp_path / "tracker.xlsx"),
+        tmp_path / "backups",
+    )
+
+    with pytest.raises(KeyError, match="missing"):
+        repository.get_application("missing")
+    with pytest.raises(KeyError, match="missing"):
+        repository.update_application(
+            "missing",
+            TrackerApplicationPatch(status="面试"),
+        )
+
+
+def test_bad_headers_raise_clear_value_error(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    workbook = load_workbook(workbook_path)
+    workbook["投递总览"]["B1"] = "错误列名"
+    workbook.save(workbook_path)
+    workbook.close()
+
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+
+    with pytest.raises(ValueError, match="unexpected headers"):
+        repository.list_applications()
+
+
+def test_wps_file_lock_keeps_original_and_cleans_temporary_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    original = workbook_path.read_bytes()
+
+    def fail_replace(source: str | Path, destination: str | Path) -> None:
+        raise PermissionError("simulated WPS lock")
+
+    monkeypatch.setattr(repository_module.os, "replace", fail_replace)
+
+    with pytest.raises(RuntimeError, match="关闭 WPS"):
+        repository.create_application(
+            TrackerApplicationDraft(company="新公司", role="新岗位")
+        )
+
+    assert workbook_path.read_bytes() == original
+    assert not list(tmp_path.glob(".tracker.*.xlsx"))
+
+
+def test_validation_failure_keeps_original_and_cleans_temporary_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    original = workbook_path.read_bytes()
+    real_load_workbook = repository_module.load_workbook
+
+    def fail_temporary_validation(path: str | Path, *args, **kwargs):
+        if Path(path).name.startswith(".tracker."):
+            raise OSError("simulated validation failure")
+        return real_load_workbook(path, *args, **kwargs)
+
+    monkeypatch.setattr(repository_module, "load_workbook", fail_temporary_validation)
+
+    with pytest.raises(OSError, match="simulated validation failure"):
+        repository.update_application(
+            record_by_role(repository, "Agent 工程师").id,
+            TrackerApplicationPatch(notes="new notes"),
+        )
+
+    assert workbook_path.read_bytes() == original
+    assert not list(tmp_path.glob(".tracker.*.xlsx"))
