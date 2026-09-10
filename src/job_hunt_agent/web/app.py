@@ -39,6 +39,10 @@ _ROOT_ELEMENT = re.compile(
     r"(<div\b(?=[^>]*\bid=(?P<quote>['\"])root(?P=quote))[^>]*)(>)",
     re.IGNORECASE,
 )
+_SESSION_ATTRIBUTE = re.compile(
+    r'''\s+data-session-token\b(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?''',
+    re.IGNORECASE,
+)
 
 
 def _detail(code: str, message: str) -> dict[str, str]:
@@ -239,7 +243,10 @@ def _frontend_response(
         )
     escaped_token = html.escape(session_token, quote=True)
     rendered, _count = _ROOT_ELEMENT.subn(
-        lambda match: f'{match.group(1)} data-session-token="{escaped_token}"{match.group(3)}',
+        lambda match: (
+            f'{_SESSION_ATTRIBUTE.sub("", match.group(1))} '
+            f'data-session-token="{escaped_token}"{match.group(3)}'
+        ),
         index,
         count=1,
     )

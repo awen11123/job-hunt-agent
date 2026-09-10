@@ -139,7 +139,9 @@ class LocalLauncher:
             raise RuntimeError("Local server failed to become healthy.")
 
         try:
-            self._browser.open(root_url)
+            opened = self._browser.open(root_url)
+            if not opened:
+                print(f"浏览器未能自动打开，请访问：{root_url}")
             server_thread.join()
         except KeyboardInterrupt:
             pass

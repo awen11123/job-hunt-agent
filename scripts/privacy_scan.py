@@ -15,15 +15,39 @@ SKIPPED_DIR_NAMES = {
     ".ruff_cache",
     ".git",
     ".venv",
-    "node_modules",
-    "dist",
-    "build",
 }
 SKIPPED_SUFFIXES = {".pyc", ".pyo"}
 
 
-def should_scan(path: Path) -> bool:
+def _is_within(path: Path, directory: Path) -> bool:
+    try:
+        path.resolve().relative_to(directory.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _is_skipped_directory(path: Path, scan_root: Path | None = None) -> bool:
     if any(part in SKIPPED_DIR_NAMES for part in path.parts):
+        return True
+
+    generated_directories = (
+        PROJECT_ROOT / "build",
+        PROJECT_ROOT / "dist",
+        PROJECT_ROOT / "frontend" / "dist",
+        PROJECT_ROOT / "frontend" / "node_modules",
+    )
+    if any(_is_within(path, directory) for directory in generated_directories):
+        return True
+    return bool(
+        scan_root is not None
+        and scan_root.name == "node_modules"
+        and _is_within(path, scan_root)
+    )
+
+
+def should_scan(path: Path, scan_root: Path | None = None) -> bool:
+    if _is_skipped_directory(path, scan_root):
         return False
     return path.suffix not in SKIPPED_SUFFIXES
 
@@ -32,7 +56,14 @@ def scan_paths(paths: list[Path]) -> list[PrivacyFinding]:
     findings: list[PrivacyFinding] = []
     for path in paths:
         if path.is_dir():
-            findings.extend(scan_paths([child for child in path.rglob("*") if child.is_file()]))
+            if _is_skipped_directory(path, path):
+                continue
+            files = [
+                child
+                for child in path.rglob("*")
+                if child.is_file() and should_scan(child, path)
+            ]
+            findings.extend(scan_paths(files))
             continue
         if not should_scan(path):
             continue

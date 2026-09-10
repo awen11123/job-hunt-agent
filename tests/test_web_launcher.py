@@ -94,6 +94,30 @@ def test_app_serves_assets_and_spa_with_an_in_memory_session_token(tmp_path: Pat
     assert token not in store.path.read_text(encoding="utf-8")
 
 
+def test_existing_session_attribute_is_replaced_without_changing_index(tmp_path: Path) -> None:
+    frontend = tmp_path / "dist"
+    frontend.mkdir()
+    original_index = '<div id="root" data-session-token="stale-token"></div>'
+    index_path = frontend / "index.html"
+    index_path.write_text(original_index, encoding="utf-8")
+    client = TestClient(
+        create_app(
+            _build_store(tmp_path),
+            session_token="current-process-token",
+            static_dir=frontend,
+        ),
+        base_url="http://localhost",
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert _session_token(response.text) == "current-process-token"
+    assert response.text.count("data-session-token") == 1
+    assert "stale-token" not in response.text
+    assert index_path.read_text(encoding="utf-8") == original_index
+
+
 def test_static_fallback_does_not_mask_api_404_and_keeps_host_restriction(
     tmp_path: Path,
 ) -> None:
@@ -215,14 +239,20 @@ class _FakeServer:
 
 
 class _FakeBrowser:
-    def __init__(self, health_state: dict[str, bool]) -> None:
+    def __init__(
+        self,
+        health_state: dict[str, bool],
+        *,
+        open_result: bool = True,
+    ) -> None:
         self.health_state = health_state
+        self.open_result = open_result
         self.urls: list[str] = []
 
     def open(self, url: str) -> bool:
         assert self.health_state["checked"]
         self.urls.append(url)
-        return True
+        return self.open_result
 
 
 def test_launcher_binds_loopback_and_opens_browser_after_health_check(
@@ -255,6 +285,31 @@ def test_launcher_binds_loopback_and_opens_browser_after_health_check(
     assert server.port == 43127
     assert server.ran is True
     assert browser.urls == ["http://127.0.0.1:43127/"]
+
+
+def test_launcher_prints_manual_url_when_browser_does_not_open(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    frontend, _original_index = _build_frontend(tmp_path)
+    server = _FakeServer()
+    browser = _FakeBrowser({"checked": True}, open_result=False)
+    launcher = LocalLauncher(
+        server=server,
+        browser=browser,
+        config_path=tmp_path / "config.json",
+        static_dir=frontend,
+        port_selector=lambda _host: 43127,
+        health_probe=lambda _url: True,
+    )
+
+    launcher.run()
+
+    output = capsys.readouterr().out
+    assert output == "浏览器未能自动打开，请访问：http://127.0.0.1:43127/\n"
+    assert "token" not in output.lower()
+    assert server.ran is True
+    assert server.stopped is True
 
 
 def test_launcher_stops_server_and_does_not_open_browser_when_startup_fails(
