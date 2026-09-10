@@ -11,16 +11,24 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$packagedExe = Join-Path $projectRoot "dist\JobHuntAgent\JobHuntAgent.exe"
-$packagedFrontend = Join-Path $projectRoot "dist\JobHuntAgent\_internal\web_static\index.html"
+$packagedRoot = Join-Path $projectRoot "dist\JobHuntAgent"
+$packagedExe = Join-Path $packagedRoot "JobHuntAgent.exe" # dist\JobHuntAgent\JobHuntAgent.exe
+$packagedFrontend = Join-Path $packagedRoot "_internal\web_static\index.html"
 $installerScript = Join-Path $projectRoot "packaging\installer.iss"
+$artifactVerifier = Join-Path $projectRoot "scripts\verify_release_artifact.py"
 $installerOutputDir = Join-Path $projectRoot "dist\installer"
 $installerOutput = Join-Path $projectRoot "dist\installer\JobHuntAgent-Setup-$Version.exe"
 
-foreach ($requiredPath in @($packagedExe, $packagedFrontend, $installerScript)) {
+foreach ($requiredPath in @($packagedExe, $packagedFrontend, $installerScript, $artifactVerifier)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required build input is missing: $requiredPath"
     }
+}
+
+$pythonCommand = Get-Command "python" -ErrorAction Stop
+& $pythonCommand.Source -X utf8 $artifactVerifier $packagedRoot
+if ($LASTEXITCODE -ne 0) {
+    throw "Release artifact verification failed. Installer compilation was stopped."
 }
 
 $compilerCandidates = @()

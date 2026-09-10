@@ -153,7 +153,7 @@ Run: `rtk proxy python -X utf8 -m pytest -q tests/test_installer_manifest.py`
 
 Expected: installer exists and tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add packaging/installer.iss scripts/build_windows_installer.ps1 tests/test_installer_manifest.py
@@ -167,7 +167,7 @@ rtk proxy git commit -m "build: add Windows installer"
 - Create: `tests/test_release_artifact.py`
 - Modify: `scripts/privacy_scan.py`
 
-- [ ] **Step 1: Write failing artifact tests**
+- [x] **Step 1: Write failing artifact tests**
 
 ```python
 def test_artifact_rejects_private_markers(tmp_path: Path) -> None:
@@ -183,17 +183,17 @@ def test_artifact_requires_application_and_frontend(tmp_path: Path) -> None:
     assert result.missing == {"web_static/index.html"}
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_release_artifact.py`
 
 Expected: FAIL because the artifact verifier does not exist.
 
-- [ ] **Step 3: Implement archive inspection**
+- [x] **Step 3: Implement archive inspection**
 
 The verifier must recursively inspect the PyInstaller release directory, reuse privacy patterns, reject `.env`, config files with secret values, private data directories, Notion URLs, WPS account paths, and missing required application resources. It must print only finding categories and paths, never matched values. The verified directory is the sole input to the Inno Setup build.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_release_artifact.py tests/test_privacy_scan_script.py`
 

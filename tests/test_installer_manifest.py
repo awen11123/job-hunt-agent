@@ -43,3 +43,13 @@ def test_build_script_validates_packaged_application_before_compiling() -> None:
     assert "$env:LOCALAPPDATA" in build
     assert "dist\\installer\\JobHuntAgent-Setup-$Version.exe" in build
     assert "C:\\Users\\" not in build
+
+
+def test_build_script_runs_artifact_verifier_before_compiler() -> None:
+    build = BUILD_SCRIPT.read_text(encoding="utf-8")
+
+    verifier_position = build.index("verify_release_artifact.py")
+    compiler_position = build.index("& $compiler")
+
+    assert verifier_position < compiler_position
+    assert "$LASTEXITCODE" in build[verifier_position:compiler_position]

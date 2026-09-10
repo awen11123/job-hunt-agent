@@ -19,6 +19,11 @@ SKIPPED_DIR_NAMES = {
 SKIPPED_SUFFIXES = {".pyc", ".pyo"}
 
 
+def scan_file(path: Path) -> list[PrivacyFinding]:
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return scan_text_for_private_leaks(text)
+
+
 def _is_within(path: Path, directory: Path) -> bool:
     try:
         path.resolve().relative_to(directory.resolve())
@@ -67,8 +72,7 @@ def scan_paths(paths: list[Path]) -> list[PrivacyFinding]:
             continue
         if not should_scan(path):
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        findings.extend(scan_text_for_private_leaks(text))
+        findings.extend(scan_file(path))
     return findings
 
 
