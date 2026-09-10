@@ -21,6 +21,21 @@ def test_scan_paths_reports_private_patterns(tmp_path: Path) -> None:
     assert {finding.kind for finding in findings} == {"notion_url", "api_key"}
 
 
+def test_scan_paths_reports_local_user_and_wps_account_paths(tmp_path: Path) -> None:
+    leaked = tmp_path / "local-path.md"
+    leaked.write_text(
+        "C:" + "/Users/ExampleUser/" + "WPS Cloud Files/" + "12345678/tracker.xlsx",
+        encoding="utf-8",
+    )
+
+    findings = scan_paths([leaked])
+
+    assert {finding.kind for finding in findings} == {
+        "windows_user_path",
+        "wps_account_path",
+    }
+
+
 def test_privacy_scan_script_runs_as_file() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/privacy_scan.py", "README.md"],

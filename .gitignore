@@ -2,6 +2,7 @@
 .env
 .venv/
 __pycache__/
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
 build/
@@ -9,3 +10,5 @@ dist/
 *.egg-info/
 private_exports/
 notion_cache.json
+.superpowers/
+backups/
