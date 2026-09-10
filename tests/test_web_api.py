@@ -286,6 +286,23 @@ def test_propose_is_preview_only_and_confirmation_writes_once(client: TestClient
     assert sum(record["company"] == "新增科技" for record in after) == 1
 
 
+def test_propose_extracts_complete_url_without_trailing_chinese_punctuation(
+    client: TestClient,
+) -> None:
+    job_url = "https://example.com/job?id=123"
+
+    response = client.post(
+        "/api/actions/propose",
+        json={"text": f"投递腾讯的 Agent 工程师 {job_url}。"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["company"] == "腾讯"
+    assert payload["role"] == "Agent 工程师"
+    assert payload["job_url"] == job_url
+
+
 def test_cancel_requires_session_and_cancelled_draft_cannot_execute(
     client: TestClient,
 ) -> None:

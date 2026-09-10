@@ -166,7 +166,7 @@ describe("AssistantPanel", () => {
 
   it.each([
     "投递腾讯 Agent",
-    "准备投腾讯",
+    "准备投腾讯 Agent 工程师",
     "投递腾讯 Agent https://example.com/job?id=123",
   ])("routes a supported write to the backend preview: %s", async (text) => {
     const jobApi = api();

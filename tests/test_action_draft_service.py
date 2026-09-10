@@ -177,6 +177,20 @@ def test_propose_application_ignores_url_query_during_question_detection() -> No
     assert repository.created == []
 
 
+def test_propose_application_extracts_inline_job_url_before_parsing_role() -> None:
+    service, repository, _ = configured_service()
+    job_url = "https://example.com/job?id=123"
+
+    draft = service.propose_application(
+        f"投递腾讯的 Agent 工程师 {job_url}"
+    )
+
+    assert draft.payload["company"] == "腾讯"
+    assert draft.payload["role"] == "Agent 工程师"
+    assert str(draft.payload["job_url"]) == job_url
+    assert repository.created == []
+
+
 def test_propose_application_rejects_body_question_even_with_url() -> None:
     service, repository, _ = configured_service()
 
