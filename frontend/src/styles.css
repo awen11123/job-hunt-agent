@@ -334,6 +334,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .status-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .summary-metric:nth-child(3) { border-top: 1px solid var(--line); border-left: 0; }
   .summary-metric:nth-child(4) { border-top: 1px solid var(--line); }
+  .summary-metric:nth-child(5) { border-top: 1px solid var(--line); border-left: 0; }
 }
 
 @media (max-width: 600px) {

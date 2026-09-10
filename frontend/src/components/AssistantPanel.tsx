@@ -5,20 +5,25 @@ import { ApiError, type JobHuntApi } from "../api/client";
 import type { ActionDraft, Application, Interview } from "../api/types";
 import { ActionPreview } from "./ActionPreview";
 import { isClosedStatus } from "./ApplicationTable";
-import { isPendingStage } from "./StatusSummary";
+import { INTERVIEW_STAGE_MARKERS, isPendingStage } from "./StatusSummary";
 
 interface AssistantPanelProps {
   api: JobHuntApi;
   onApplicationsChanged?: () => void;
 }
 
-const interviewMarkers = ["面试", "一面", "二面", "三面", "终面", "HR面", "AI面"];
+const urlPattern = /https?:\/\/[^\s，。；！？]+/gi;
+const questionPattern = /[?？]|多少|几个|几家|哪些|什么|是否|吗|怎么|如何|为何|为什么/;
+const localReadPattern = /本周|近\s*7\s*日|总投递|待面试|等待面试|最近.*面经|面经.*最近/;
+const readCommandPattern = /^(?:查|查看|查询|统计|显示|列出|告诉我|帮我查|帮我看|看看)/;
 
-function isExplicitApplicationWrite(text: string): boolean {
-  const asksQuestion = /[?？]|多少|几个|几家|哪些|什么|是否|吗|怎么|如何|为何|为什么/.test(
-    text,
+function isReadRequest(text: string): boolean {
+  const questionText = text.replace(urlPattern, "");
+  return (
+    questionPattern.test(questionText) ||
+    localReadPattern.test(questionText) ||
+    readCommandPattern.test(questionText)
   );
-  return !asksQuestion && /投了|投递了|新投|新增投递|申请了/.test(text);
 }
 
 function localDateString(date: Date): string {
@@ -37,10 +42,22 @@ function inLastSevenLocalDays(value: string | null): boolean {
   return value >= startValue && value <= end;
 }
 
+function inCurrentLocalWeek(value: string | null): boolean {
+  if (!value) return false;
+  const today = new Date();
+  const mondayOffset = today.getDay() === 0 ? 6 : today.getDay() - 1;
+  const monday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - mondayOffset,
+  );
+  return value >= localDateString(monday) && value <= localDateString(today);
+}
+
 function pendingInterviews(applications: Application[]): Application[] {
   return applications.filter(
     (item) =>
-      !isClosedStatus(item.status) && isPendingStage(item, interviewMarkers),
+      !isClosedStatus(item.status) && isPendingStage(item, INTERVIEW_STAGE_MARKERS),
   );
 }
 
@@ -64,13 +81,19 @@ export function AssistantPanel({ api, onApplicationsChanged }: AssistantPanelPro
   const answerRead = async (text: string): Promise<string> => {
     if (/投递|投了/.test(text) && /本周|近\s*7\s*日|多少|总数|几家|几个/.test(text)) {
       const all = await api.listApplications();
-      const records = /本周|近\s*7\s*日/.test(text)
-        ? all.filter((item) => inLastSevenLocalDays(item.applied_date))
-        : all;
+      const records = /本周/.test(text)
+        ? all.filter((item) => inCurrentLocalWeek(item.applied_date))
+        : /近\s*7\s*日/.test(text)
+          ? all.filter((item) => inLastSevenLocalDays(item.applied_date))
+          : all;
       const companies = new Set(
         records.map((item) => item.company.trim()).filter((company) => company.length > 0),
       );
-      const range = /本周|近\s*7\s*日/.test(text) ? "近 7 日" : "当前";
+      const range = /本周/.test(text)
+        ? "本周"
+        : /近\s*7\s*日/.test(text)
+          ? "近 7 日"
+          : "当前";
       return `${range}共投递 ${records.length} 个岗位，涉及 ${companies.size} 家公司。`;
     }
     if (/待面试|等待面试/.test(text)) {
@@ -98,11 +121,11 @@ export function AssistantPanel({ api, onApplicationsChanged }: AssistantPanelPro
     setError(null);
     setReceipt(null);
     try {
-      if (isExplicitApplicationWrite(text)) {
+      if (isReadRequest(text)) {
+        setReceipt(await answerRead(text));
+      } else {
         const proposed = await api.proposeAction(text);
         setDraft(proposed);
-      } else {
-        setReceipt(await answerRead(text));
       }
       setInput("");
     } catch (caught) {

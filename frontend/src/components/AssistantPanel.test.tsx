@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, type JobHuntApi } from "../api/client";
 import type { ActionDraft, ActionExecution } from "../api/types";
@@ -52,6 +52,8 @@ async function propose(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AssistantPanel", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("never confirms a write directly from a chat message", async () => {
     const jobApi = api();
     const user = userEvent.setup();
@@ -133,6 +135,8 @@ describe("AssistantPanel", () => {
   });
 
   it("answers a weekly count question locally without proposing a write", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 9, 12));
     const today = new Date();
     const localDate = (value: Date) => {
       const year = value.getFullYear();
@@ -140,9 +144,12 @@ describe("AssistantPanel", () => {
       const day = String(value.getDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
     };
+    const monday = new Date(2026, 8, 7, 12);
+    const sunday = new Date(2026, 8, 6, 12);
     const listApplications = vi.fn().mockResolvedValue([
       { id: "1", company: "同一公司", role: "Agent", applied_date: localDate(today) },
-      { id: "2", company: "同一公司", role: "LLM", applied_date: localDate(today) },
+      { id: "2", company: "同一公司", role: "LLM", applied_date: localDate(monday) },
+      { id: "3", company: "上周公司", role: "平台", applied_date: localDate(sunday) },
     ]);
     const jobApi = api({ listApplications });
     const user = userEvent.setup();
@@ -151,10 +158,27 @@ describe("AssistantPanel", () => {
     await user.type(screen.getByRole("textbox", { name: "输入投递操作" }), "本周投了多少家？");
     await user.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText(/近 7 日共投递 2 个岗位，涉及 1 家公司/)).toBeInTheDocument();
+    expect(await screen.findByText(/本周共投递 2 个岗位，涉及 1 家公司/)).toBeInTheDocument();
     expect(jobApi.proposeAction).not.toHaveBeenCalled();
     expect(listApplications).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("变更预览")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "投递腾讯 Agent",
+    "准备投腾讯",
+    "投递腾讯 Agent https://example.com/job?id=123",
+  ])("routes a supported write to the backend preview: %s", async (text) => {
+    const jobApi = api();
+    const user = userEvent.setup();
+    render(<AssistantPanel api={jobApi} />);
+
+    await user.type(screen.getByRole("textbox", { name: "输入投递操作" }), text);
+    await user.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("变更预览")).toBeInTheDocument();
+    expect(jobApi.proposeAction).toHaveBeenCalledWith(text);
+    expect(jobApi.confirmAction).not.toHaveBeenCalled();
   });
 
   it("answers pending-interview and recent-interview questions from local data", async () => {

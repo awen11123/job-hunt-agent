@@ -659,6 +659,38 @@ def test_closed_to_closed_update_stays_in_its_existing_row(tmp_path: Path) -> No
     workbook.close()
 
 
+@pytest.mark.parametrize("closed_status", ("遗憾", "简历挂", "未录用"))
+def test_real_tracker_closed_markers_move_updated_application_below_divider(
+    tmp_path: Path,
+    closed_status: str,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "Agent 工程师")
+
+    repository.update_application(
+        target.id,
+        TrackerApplicationPatch(status=closed_status),
+    )
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    divider_row = next(
+        row
+        for row in range(2, sheet.max_row + 1)
+        if sheet.cell(row, 1).value is None
+        and sheet.cell(row, 1).fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+    )
+    application_row = next(
+        row
+        for row in range(2, sheet.max_row + 1)
+        if sheet.cell(row, 2).value == "Agent 工程师"
+    )
+    assert application_row > divider_row
+    assert sheet.cell(application_row, 5).value == closed_status
+    workbook.close()
+
+
 @pytest.mark.parametrize(
     ("changes", "expected_company", "expected_label", "expected_target"),
     [

@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import type { JobHuntApi } from "../api/client";
 import type { Application, Interview } from "../api/types";
 import { isClosedStatus } from "../components/ApplicationTable";
+import {
+  ASSESSMENT_STAGE_MARKERS,
+  INTERVIEW_STAGE_MARKERS,
+  isPendingStage,
+} from "../components/StatusSummary";
 
 interface ReviewViewProps {
   api: JobHuntApi;
@@ -27,6 +32,17 @@ function interviewDate(interview: Interview): string {
 
 function stageText(application: Application): string {
   return `${application.status} ${application.next_step || ""}`;
+}
+
+type FunnelStage = "已投递" | "测评" | "面试" | "Offer" | "结束";
+
+function currentFunnelStage(application: Application): FunnelStage {
+  const stage = stageText(application);
+  if (isClosedStatus(application.status)) return "结束";
+  if (/offer|录用/i.test(stage)) return "Offer";
+  if (isPendingStage(application, INTERVIEW_STAGE_MARKERS)) return "面试";
+  if (isPendingStage(application, ASSESSMENT_STAGE_MARKERS)) return "测评";
+  return "已投递";
 }
 
 export function ReviewView({ api, refreshVersion = 0 }: ReviewViewProps) {
@@ -58,7 +74,12 @@ export function ReviewView({ api, refreshVersion = 0 }: ReviewViewProps) {
 
   const today = new Date();
   const todayValue = localDateString(today);
-  const weekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
+  const mondayOffset = today.getDay() === 0 ? 6 : today.getDay() - 1;
+  const weekStart = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - mondayOffset,
+  );
   const weekStartValue = localDateString(weekStart);
   const todayApplications = applications.filter(
     (item) => item.applied_date === todayValue,
@@ -77,13 +98,11 @@ export function ReviewView({ api, refreshVersion = 0 }: ReviewViewProps) {
     ["pending", "failed"].includes(item.sync_status),
   );
   const nextSteps = active.filter((item) => item.next_step).slice(0, 6);
-  const funnel = [
-    ["投递", applications.length],
-    ["测评", active.filter((item) => /测评|笔试/.test(stageText(item))).length],
-    ["面试", active.filter((item) => /面试|一面|二面|三面|终面|HR面|AI面/.test(stageText(item))).length],
-    ["Offer", active.filter((item) => /offer|录用/i.test(stageText(item))).length],
-    ["结束", applications.length - active.length],
-  ] as const;
+  const funnelStages: FunnelStage[] = ["已投递", "测评", "面试", "Offer", "结束"];
+  const currentStages = applications.map(currentFunnelStage);
+  const funnel = funnelStages.map(
+    (stage) => [stage, currentStages.filter((value) => value === stage).length] as const,
+  );
 
   return (
     <div className="view-content review-view">
@@ -110,14 +129,15 @@ export function ReviewView({ api, refreshVersion = 0 }: ReviewViewProps) {
           <section className="review-section" aria-label="周复盘">
             <h2>周复盘</h2>
             <div className="review-lines">
-              <p><span>近 7 日投递</span><strong>{weekApplications}</strong></p>
-              <p><span>近 7 日面试</span><strong>{weekInterviews}</strong></p>
+              <p><span>本周投递</span><strong>{weekApplications}</strong></p>
+              <p><span>本周面试</span><strong>{weekInterviews}</strong></p>
             </div>
           </section>
 
           <section className="review-section" aria-label="流程漏斗">
             <h2>流程漏斗</h2>
             <p className="muted-text">当前节点计数，不代表历史转化率</p>
+            <p className="muted-text">当前节点合计 {currentStages.length}</p>
             <ul className="distribution-list">
               {funnel.map(([label, count]) => (
                 <li key={label} aria-label={`${label} ${count}`}>

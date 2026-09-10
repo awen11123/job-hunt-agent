@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JobHuntApi } from "../api/client";
 import type { Application, Interview, LocalConfig } from "../api/types";
@@ -91,6 +91,7 @@ function api(overrides: Partial<JobHuntApi> = {}): JobHuntApi {
 
 describe("AppShell", () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.useRealTimers());
 
   it("searches applications by company, role, and location", async () => {
     const user = userEvent.setup();
@@ -151,7 +152,7 @@ describe("AppShell", () => {
     expect(within(summary).getByLabelText("总投递 3")).toBeInTheDocument();
     expect(within(summary).getByLabelText("进行中 2")).toBeInTheDocument();
     expect(within(summary).getByLabelText("待测评 0")).toBeInTheDocument();
-    expect(within(summary).getByLabelText("待面试 0")).toBeInTheDocument();
+    expect(within(summary).getByLabelText("待面试 1")).toBeInTheDocument();
     expect(within(summary).getByLabelText("已结束 1")).toBeInTheDocument();
   });
 
@@ -161,14 +162,19 @@ describe("AppShell", () => {
       { ...applications[0], id: "assessment-done", status: "笔试完成", next_step: "等待结果" },
       { ...applications[0], id: "interview", status: "已投递", next_step: "技术一面" },
       { ...applications[0], id: "interview-done", status: "AI面试完成", next_step: "等待结果" },
+      { ...applications[0], id: "after-exam", status: "笔试完成", next_step: "等待面试" },
+      { ...applications[0], id: "second-round", status: "AI面试完成", next_step: "二面" },
+      { ...applications[0], id: "assessment-next", status: "面试完成", next_step: "等待测评" },
+      { ...applications[0], id: "initial-round", status: "已投递", next_step: "初面" },
+      { ...applications[0], id: "follow-up-round", status: "已投递", next_step: "复面" },
     ];
 
     render(<StatusSummary applications={records} />);
 
-    expect(screen.getByLabelText("总投递 4")).toBeInTheDocument();
-    expect(screen.getByLabelText("进行中 4")).toBeInTheDocument();
-    expect(screen.getByLabelText("待测评 1")).toBeInTheDocument();
-    expect(screen.getByLabelText("待面试 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("总投递 9")).toBeInTheDocument();
+    expect(screen.getByLabelText("进行中 9")).toBeInTheDocument();
+    expect(screen.getByLabelText("待测评 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("待面试 5")).toBeInTheDocument();
     expect(screen.getByLabelText("已结束 0")).toBeInTheDocument();
   });
 
@@ -212,20 +218,25 @@ describe("AppShell", () => {
     expect(await screen.findByText("设置已保存")).toBeInTheDocument();
   });
 
-  it("shows daily, seven-day, funnel, and todo review sections", async () => {
+  it("shows daily, natural-week, exclusive funnel, and todo review sections", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 9, 12));
     const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
+    const monday = new Date(2026, 8, 7, 12);
+    const sunday = new Date(2026, 8, 6, 12);
     const localDate = (value: Date) => {
       const year = value.getFullYear();
       const month = String(value.getMonth() + 1).padStart(2, "0");
       const day = String(value.getDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
     };
-    const datedApplications = applications.map((item, index) => ({
-      ...item,
-      applied_date: localDate(index === 0 ? today : yesterday),
-    }));
+    const datedApplications: Application[] = [
+      { ...applications[0], id: "today", applied_date: localDate(today), status: "已投递", next_step: "等待筛选" },
+      { ...applications[0], id: "monday", applied_date: localDate(monday), status: "笔试完成", next_step: "等待面试" },
+      { ...applications[0], id: "sunday", applied_date: localDate(sunday), status: "笔试", next_step: "等待笔试" },
+      { ...applications[0], id: "offer", applied_date: localDate(monday), status: "Offer", next_step: null },
+      { ...applications[1], id: "closed", applied_date: localDate(monday) },
+    ];
     const user = userEvent.setup();
     render(
       <AppShell
@@ -239,11 +250,15 @@ describe("AppShell", () => {
       "今日新增投递1",
     );
     expect(within(panel).getByRole("region", { name: "周复盘" })).toHaveTextContent(
-      "近 7 日投递3",
+      "本周投递4",
     );
-    expect(within(panel).getByRole("region", { name: "流程漏斗" })).toHaveTextContent(
-      "面试1",
-    );
+    const funnel = within(panel).getByRole("region", { name: "流程漏斗" });
+    expect(funnel).toHaveTextContent("已投递1");
+    expect(funnel).toHaveTextContent("测评1");
+    expect(funnel).toHaveTextContent("面试1");
+    expect(funnel).toHaveTextContent("Offer1");
+    expect(funnel).toHaveTextContent("结束1");
+    expect(funnel).toHaveTextContent("当前节点合计 5");
     expect(within(panel).getByRole("region", { name: "当前待办" })).toBeInTheDocument();
   });
 });

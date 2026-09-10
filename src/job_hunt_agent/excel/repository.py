@@ -49,7 +49,17 @@ FIELDS: Final = (
     "job_url",
     "notes",
 )
-CLOSED_MARKERS: Final = ("未通过", "结束", "拒绝", "放弃", "终止", "淘汰")
+CLOSED_MARKERS: Final = (
+    "未通过",
+    "结束",
+    "拒绝",
+    "放弃",
+    "终止",
+    "淘汰",
+    "遗憾",
+    "简历挂",
+    "未录用",
+)
 DIVIDER_COLOR: Final = "E7E6E3"
 LOCK_TIMEOUT_SECONDS = 10.0
 _LOCK_POLL_SECONDS: Final = 0.05

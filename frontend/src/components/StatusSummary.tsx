@@ -13,14 +13,27 @@ interface StatusSummaryProps {
   applications: Application[];
 }
 
+export const ASSESSMENT_STAGE_MARKERS = ["测评", "笔试"] as const;
+export const INTERVIEW_STAGE_MARKERS = [
+  "面试",
+  "一面",
+  "二面",
+  "三面",
+  "初面",
+  "复面",
+  "终面",
+  "HR面",
+  "AI面",
+] as const;
+
 export function StatusSummary({ applications }: StatusSummaryProps) {
   const closed = applications.filter((item) => isClosedStatus(item.status)).length;
   const active = applications.length - closed;
   const pendingAssessment = applications.filter((item) =>
-    isPendingStage(item, ["测评", "笔试"]),
+    isPendingStage(item, ASSESSMENT_STAGE_MARKERS),
   ).length;
   const pendingInterview = applications.filter((item) =>
-    isPendingStage(item, ["面试", "一面", "二面", "三面", "终面", "HR面", "AI面"]),
+    isPendingStage(item, INTERVIEW_STAGE_MARKERS),
   ).length;
 
   const metrics = [
@@ -46,11 +59,16 @@ export function StatusSummary({ applications }: StatusSummaryProps) {
   );
 }
 
-export function isPendingStage(application: Application, markers: string[]): boolean {
+export function isPendingStage(
+  application: Application,
+  markers: readonly string[],
+): boolean {
   if (isClosedStatus(application.status)) return false;
-  const status = application.status || "";
-  const nextStep = application.next_step || "";
-  if (`${status}${nextStep}`.includes("完成")) return false;
-  if (nextStep) return markers.some((marker) => nextStep.includes(marker));
-  return markers.some((marker) => status.includes(marker));
+  const isPendingValue = (value: string | null): boolean =>
+    Boolean(
+      value &&
+        !value.includes("完成") &&
+        markers.some((marker) => value.includes(marker)),
+    );
+  return isPendingValue(application.status) || isPendingValue(application.next_step);
 }
