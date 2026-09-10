@@ -39,3 +39,9 @@ python -X utf8 scripts/privacy_scan.py README.md docs examples frontend scripts 
 ```
 
 自动化测试会额外检查 API 响应、普通配置、面经索引、面经文件、操作回执和测试日志，确保已配置的模型 Key 与 Notion Token 不会被复制到这些位置。
+
+## 安装包与卸载
+
+Windows 安装包只包含从公开源码构建的程序文件和前端资源。发布流程会递归检查独立程序目录，拒绝 `.env`、含凭证的配置、Excel 文件、面经目录、备份目录、Notion 地址和 WPS 账号路径；检查通过后，该目录才允许进入安装器。
+
+安装、升级和卸载不会把外部 Excel、面经或备份复制进程序目录。卸载程序只删除应用文件和快捷方式，不删除 `%APPDATA%\JobHuntAgent` 中的用户配置与本地数据，也不删除用户自行指定的 Excel、备份或面经目录。

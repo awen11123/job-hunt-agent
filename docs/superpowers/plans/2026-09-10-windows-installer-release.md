@@ -244,7 +244,7 @@ Run: `rtk proxy powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smok
 
 Expected: PASS and the smoke script confirms health on a loopback URL.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add .github/workflows/windows-release.yml scripts/smoke_windows_install.ps1 tests/test_release_workflow.py
@@ -258,11 +258,11 @@ rtk proxy git commit -m "ci: publish verified Windows releases"
 - Modify: `README.md`
 - Modify: `docs/privacy.md`
 
-- [ ] **Step 1: Document the ordinary-user workflow**
+- [x] **Step 1: Document the ordinary-user workflow**
 
 Document installation, first-run Excel selection, optional model and Notion setup, backup recovery, upgrade behavior, and uninstall behavior. Do not require command-line steps in the primary path.
 
-- [ ] **Step 2: Run all verification commands**
+- [x] **Step 2: Run all verification commands**
 
 Run: `rtk proxy python -X utf8 -m pytest -q`
 
@@ -278,7 +278,7 @@ Run: `rtk proxy python -X utf8 scripts/verify_release_artifact.py dist/JobHuntAg
 
 Expected: every command passes and no privacy findings are printed.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 rtk proxy git add README.md docs/windows-install.md docs/privacy.md
