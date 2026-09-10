@@ -18,7 +18,7 @@
 - Create: `src/job_hunt_agent/local_app/config.py`
 - Create: `tests/test_local_app_config.py`
 
-- [ ] **Step 1: Write the failing configuration tests**
+- [x] **Step 1: Write the failing configuration tests**
 
 ```python
 from pathlib import Path
@@ -47,13 +47,13 @@ def test_default_paths_are_below_supplied_app_data_root(tmp_path: Path) -> None:
     assert config.interview_dir == tmp_path / "interviews"
 ```
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_local_app_config.py`
 
 Expected: FAIL with `ModuleNotFoundError: job_hunt_agent.local_app`.
 
-- [ ] **Step 3: Implement the configuration model and atomic JSON store**
+- [x] **Step 3: Implement the configuration model and atomic JSON store**
 
 ```python
 class LocalAppConfig(BaseModel):
@@ -87,13 +87,13 @@ class LocalConfigStore:
 
 `paths.py` must expose `app_data_root()` using `%APPDATA%/JobHuntAgent` on Windows and `~/.local/share/job-hunt-agent` elsewhere.
 
-- [ ] **Step 4: Run the tests and verify GREEN**
+- [x] **Step 4: Run the tests and verify GREEN**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_local_app_config.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/local_app tests/test_local_app_config.py
@@ -108,7 +108,7 @@ rtk proxy git commit -m "feat: add local app configuration"
 - Create: `src/job_hunt_agent/excel/repository.py`
 - Create: `tests/test_excel_application_repository.py`
 
-- [ ] **Step 1: Write failing repository tests with a synthetic workbook**
+- [x] **Step 1: Write failing repository tests with a synthetic workbook**
 
 ```python
 def test_repository_lists_rows_and_preserves_links(tmp_path: Path) -> None:
@@ -138,13 +138,13 @@ def test_confirmed_create_makes_backup_and_preserves_existing_styles(tmp_path: P
 
 Add tests for duplicate company-role rejection, stage updates, WPS file-lock errors, merged cells, the gray closed-process divider, and atomic replacement failure.
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_excel_application_repository.py`
 
 Expected: FAIL because `job_hunt_agent.excel` does not exist.
 
-- [ ] **Step 3: Implement exact Excel row models**
+- [x] **Step 3: Implement exact Excel row models**
 
 ```python
 class TrackerApplication(BaseModel):
@@ -174,7 +174,7 @@ class TrackerApplicationDraft(BaseModel):
 
 Derive stable IDs from normalized company, role, and application date. Do not add hidden Excel columns.
 
-- [ ] **Step 4: Implement guarded workbook reads and writes**
+- [x] **Step 4: Implement guarded workbook reads and writes**
 
 `ExcelApplicationRepository` must expose four exact methods: `list_applications()` returns
 newest-first `TrackerApplication` records; `get_application(application_id)` raises `KeyError`
@@ -184,13 +184,13 @@ duplicate before writing; and `update_application(application_id, changes)` appl
 
 Reuse the existing snapshot, hyperlink, merge, backup, and atomic-replace behavior from `scripts/wps_job_tracker.py`, `scripts/compact_wps_job_tracker.py`, and `scripts/optimize_wps_job_tracker.py`. Package code must not import from `scripts`.
 
-- [ ] **Step 5: Run repository tests and the existing WPS tests**
+- [x] **Step 5: Run repository tests and the existing WPS tests**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_excel_application_repository.py tests/test_wps_job_tracker.py tests/test_compact_wps_job_tracker.py tests/test_optimize_wps_job_tracker.py`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/excel tests/test_excel_application_repository.py
@@ -204,7 +204,7 @@ rtk proxy git commit -m "feat: add Excel application repository"
 - Create: `src/job_hunt_agent/interviews/local_store.py`
 - Create: `tests/test_local_interview_store.py`
 
-- [ ] **Step 1: Write failing local-store tests**
+- [x] **Step 1: Write failing local-store tests**
 
 ```python
 def test_local_store_writes_private_markdown_and_index(tmp_path: Path) -> None:
@@ -225,13 +225,13 @@ def test_local_store_writes_private_markdown_and_index(tmp_path: Path) -> None:
 
 Add tests for filename sanitization, JSON index atomic replacement, missing files, and UTF-8 content.
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_local_interview_store.py`
 
 Expected: FAIL because `LocalInterviewStore` does not exist.
 
-- [ ] **Step 3: Implement the store**
+- [x] **Step 3: Implement the store**
 
 `LocalInterviewStore` must expose four exact methods: `save(draft, operation_id)` performs an
 idempotent write; `get(interview_id)` raises `KeyError` when absent; `list(application_id=None)`
@@ -241,13 +241,13 @@ or `failed` and atomically updates the index.
 
 Use `index.json` for metadata and one Markdown file per interview. Write both through temporary files and replace only after validation.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_local_interview_store.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/interviews tests/test_local_interview_store.py
@@ -262,7 +262,7 @@ rtk proxy git commit -m "feat: add local interview store"
 - Create: `src/job_hunt_agent/actions/service.py`
 - Create: `tests/test_action_draft_service.py`
 
-- [ ] **Step 1: Write failing confirmation-flow tests**
+- [x] **Step 1: Write failing confirmation-flow tests**
 
 ```python
 def test_write_request_creates_preview_without_mutating_repository() -> None:
@@ -289,13 +289,13 @@ def test_confirmation_executes_once() -> None:
 
 Add tests for cancellation, expired tokens, modified drafts, read-only requests, and unsupported free-form input without a model.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_action_draft_service.py`
 
 Expected: FAIL because the action package does not exist.
 
-- [ ] **Step 3: Implement action models and in-memory draft storage**
+- [x] **Step 3: Implement action models and in-memory draft storage**
 
 ```python
 class ActionDraft(BaseModel):
@@ -318,13 +318,13 @@ returning so a repeated call returns the same result without another repository 
 
 Use the existing `parse_application_text` function for no-model parsing. Store drafts only in process memory in the MVP, so an application restart cannot accidentally execute an old draft.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_action_draft_service.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/actions tests/test_action_draft_service.py
