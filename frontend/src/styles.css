@@ -341,8 +341,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .topbar { min-height: 58px; padding: 0 14px; }
   .local-status, .brand span:last-child { display: none; }
   .tabbar { height: 50px; padding: 0 8px; overflow-x: auto; }
-  .tabbar [role="tablist"] { min-width: 390px; gap: 4px; }
-  .tabbar [role="tab"] { min-width: 88px; font-size: 13px; }
+  .tabbar [role="tablist"] { width: 100%; min-width: 0; gap: 2px; }
+  .tabbar [role="tab"] { min-width: 84px; flex: 1 1 84px; font-size: 13px; }
   .main-workspace { padding: 18px 12px 32px; }
   .workspace-heading h1 { font-size: 20px; }
   .filterbar, .settings-view label { align-items: stretch; flex-direction: column; }

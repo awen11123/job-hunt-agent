@@ -15,6 +15,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("HttpJobHuntApi", () => {
+  it("invokes the fetch implementation without rebinding its receiver", async () => {
+    const fetcher: typeof fetch = function (this: unknown) {
+      expect(this).toBeUndefined();
+      return Promise.resolve(jsonResponse([]));
+    };
+    const api = new HttpJobHuntApi("session", "/api", fetcher);
+
+    await expect(api.listApplications()).resolves.toEqual([]);
+  });
+
   it("sends the injected session token on every mutation except propose", async () => {
     const requests: RecordedRequest[] = [];
     const fetcher: typeof fetch = async (input, init = {}) => {

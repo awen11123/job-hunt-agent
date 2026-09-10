@@ -148,7 +148,8 @@ export class HttpJobHuntApi implements JobHuntApi {
       headers.set("Content-Type", "application/json");
     }
 
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
+    const fetcher = this.fetcher;
+    const response = await fetcher(`${this.baseUrl}${path}`, {
       ...init,
       headers,
     });

@@ -6,7 +6,7 @@ import secrets
 import threading
 import uuid
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
 
 from job_hunt_agent.actions.models import (
@@ -78,12 +78,14 @@ class ActionDraftService:
         interview_store: Any = None,
         *,
         clock: Callable[[], datetime] = _utc_now,
+        local_timezone: tzinfo | None = None,
         ttl: timedelta = timedelta(minutes=10),
         token_factory: Callable[[], str] = secrets.token_urlsafe,
     ) -> None:
         self._excel_repository = excel_repository
         self._interview_store = interview_store
         self._clock = clock
+        self._local_timezone = local_timezone
         self._ttl = ttl
         self._token_factory = token_factory
         self._drafts: dict[str, ActionDraft] = {}
@@ -98,7 +100,7 @@ class ActionDraftService:
         ):
             raise UnsupportedInputError("Input is not an unambiguous application write request")
 
-        today = self._now().date()
+        today = self._now().astimezone(self._local_timezone).date()
         try:
             parsed = parse_application_text(text, today, default_season="local")
             payload: dict[str, Any] = {

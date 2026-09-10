@@ -35,7 +35,7 @@ def build_tracker(path: Path) -> Path:
         [
             "示例科技",
             "Agent 工程师",
-            datetime.now(UTC).date(),
+            datetime.now().astimezone().date(),
             "杭州",
             "已投递",
             "等待筛选",

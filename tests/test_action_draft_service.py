@@ -4,7 +4,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -162,6 +162,22 @@ def test_propose_application_creates_preview_without_writing() -> None:
     assert repository.created == []
     assert repository.updated == []
     assert interview_store.saved == []
+
+
+def test_propose_application_uses_business_timezone_for_today() -> None:
+    repository = RecordingExcelRepository()
+    interview_store = RecordingInterviewStore()
+    service = ActionDraftService(
+        repository,
+        interview_store,
+        clock=MutableClock(datetime(2026, 9, 10, 19, 0, tzinfo=UTC)),
+        local_timezone=timezone(timedelta(hours=8)),
+        token_factory=lambda: "secret-token",
+    )
+
+    draft = service.propose_application("今天投了示例科技的 Agent 工程师，北京")
+
+    assert draft.payload["applied_date"].isoformat() == "2026-09-11"
 
 
 def test_propose_application_ignores_url_query_during_question_detection() -> None:
