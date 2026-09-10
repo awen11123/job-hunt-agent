@@ -29,6 +29,10 @@ def test_local_config_round_trip_only_serializes_settings(tmp_path: Path) -> Non
         "interview_dir",
         "notion_enabled",
         "model_enabled",
+        "model_provider",
+        "model_base_url",
+        "model_name",
+        "model_credential_ref",
     }
     assert all(term not in serialized.lower() for term in ("token", "api_key", "secret"))
 
@@ -132,6 +136,10 @@ def test_defaults_are_below_supplied_app_data_root(tmp_path: Path) -> None:
     assert config.interview_dir == tmp_path / "interviews"
     assert config.notion_enabled is False
     assert config.model_enabled is False
+    assert config.model_provider == "deepseek"
+    assert config.model_base_url is None
+    assert config.model_name is None
+    assert config.model_credential_ref is None
 
 
 def test_save_creates_parent_directory(tmp_path: Path) -> None:

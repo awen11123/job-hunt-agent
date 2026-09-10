@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
@@ -13,6 +14,16 @@ class LocalAppConfig(BaseModel):
     interview_dir: Path
     notion_enabled: bool = False
     model_enabled: bool = False
+    model_provider: Literal[
+        "deepseek",
+        "qwen",
+        "moonshot",
+        "openai-compatible",
+        "ollama",
+    ] = "deepseek"
+    model_base_url: str | None = None
+    model_name: str | None = None
+    model_credential_ref: str | None = None
 
     @field_validator("excel_path", "backup_dir", "interview_dir", mode="before")
     @classmethod
@@ -28,6 +39,13 @@ class LocalAppConfig(BaseModel):
             if not path.is_absolute():
                 raise ValueError(f"{info.field_name} must be an absolute path")
             return value
+        return value
+
+    @field_validator("model_base_url", "model_name", "model_credential_ref", mode="before")
+    @classmethod
+    def blank_optional_model_setting_becomes_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @classmethod
