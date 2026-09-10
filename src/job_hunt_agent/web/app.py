@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import html
+import re
 import secrets
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -32,6 +35,10 @@ from job_hunt_agent.web.schemas import (
 
 
 SessionRequired = Annotated[None, Depends(require_session)]
+_ROOT_ELEMENT = re.compile(
+    r"(<div\b(?=[^>]*\bid=(?P<quote>['\"])root(?P=quote))[^>]*)(>)",
+    re.IGNORECASE,
+)
 
 
 def _detail(code: str, message: str) -> dict[str, str]:
@@ -198,9 +205,51 @@ def build_api_router(services: WebServices) -> APIRouter:
     return router
 
 
+def _frontend_response(
+    static_root: Path,
+    full_path: str,
+    session_token: str,
+) -> Response:
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    requested = (static_root / full_path).resolve() if full_path else None
+    if requested is not None:
+        try:
+            requested.relative_to(static_root)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
+        if requested.is_file() and requested.name != "index.html":
+            return FileResponse(requested)
+        if full_path == "assets" or full_path.startswith("assets/"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    index_path = static_root / "index.html"
+    try:
+        index = index_path.read_text(encoding="utf-8")
+    except OSError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_detail("frontend_unavailable", "前端资源暂时不可用。"),
+        ) from None
+    if len(list(_ROOT_ELEMENT.finditer(index))) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_detail("frontend_unavailable", "前端资源暂时不可用。"),
+        )
+    escaped_token = html.escape(session_token, quote=True)
+    rendered, _count = _ROOT_ELEMENT.subn(
+        lambda match: f'{match.group(1)} data-session-token="{escaped_token}"{match.group(3)}',
+        index,
+        count=1,
+    )
+    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
+
+
 def create_app(
     config_store: LocalConfigStore,
     session_token: str | None = None,
+    static_dir: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Job Hunt Agent", docs_url=None, redoc_url=None)
     app.add_middleware(
@@ -218,4 +267,22 @@ def create_app(
         )
 
     app.include_router(build_api_router(app.state.services))
+
+    if static_dir is not None:
+        static_root = static_dir.resolve()
+        try:
+            index = (static_root / "index.html").read_text(encoding="utf-8")
+        except OSError:
+            raise RuntimeError("The frontend build is unavailable.") from None
+        if len(list(_ROOT_ELEMENT.finditer(index))) != 1:
+            raise RuntimeError("The frontend build is unavailable.")
+
+        @app.get("/", include_in_schema=False, response_model=None)
+        def serve_frontend_root() -> Response:
+            return _frontend_response(static_root, "", app.state.session_token)
+
+        @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
+        def serve_frontend_path(full_path: str) -> Response:
+            return _frontend_response(static_root, full_path, app.state.session_token)
+
     return app

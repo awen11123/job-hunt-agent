@@ -2,6 +2,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 from scripts.privacy_scan import scan_paths
 
 
@@ -75,3 +77,34 @@ def test_scan_paths_skips_python_cache_directories(tmp_path: Path) -> None:
     )
 
     assert scan_paths([tmp_path]) == []
+
+
+@pytest.mark.parametrize("directory_name", ["node_modules", "dist", "build"])
+def test_scan_paths_skips_dependencies_and_build_outputs(
+    tmp_path: Path,
+    directory_name: str,
+) -> None:
+    generated_dir = tmp_path / directory_name
+    generated_dir.mkdir()
+    (generated_dir / "third-party.js").write_text(
+        "C:" + "/Users/ThirdParty/build-output.js",
+        encoding="utf-8",
+    )
+
+    assert scan_paths([tmp_path]) == []
+
+
+def test_scan_paths_still_scans_project_source_beside_skipped_directories(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "dist").mkdir()
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "app.py").write_text(
+        "key = '" + "sk-" + "abc123456789SECRET'",
+        encoding="utf-8",
+    )
+
+    findings = scan_paths([tmp_path])
+
+    assert [finding.kind for finding in findings] == ["api_key"]

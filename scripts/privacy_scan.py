@@ -9,7 +9,16 @@ if str(SRC_ROOT) not in sys.path:
 from job_hunt_agent.privacy import PrivacyFinding, scan_text_for_private_leaks  # noqa: E402
 
 
-SKIPPED_DIR_NAMES = {"__pycache__", ".pytest_cache", ".ruff_cache", ".git", ".venv"}
+SKIPPED_DIR_NAMES = {
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".git",
+    ".venv",
+    "node_modules",
+    "dist",
+    "build",
+}
 SKIPPED_SUFFIXES = {".pyc", ".pyo"}
 
 
