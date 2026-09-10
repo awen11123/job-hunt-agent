@@ -1,7 +1,7 @@
 [project]
 name = "job-hunt-agent"
-version = "0.1.0"
-description = "Private Notion-backed autumn recruitment tracker exposed as a Python MCP server."
+version = "0.2.1"
+description = "Local-first autumn recruitment tracker with optional LLM and Notion integrations."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,6 +12,7 @@ dependencies = [
   "openpyxl>=3.1.5",
   "pydantic>=2.7.0",
   "python-dotenv>=1.0.1",
+  "tzdata>=2025.2",
   "uvicorn>=0.30.0",
 ]
 
