@@ -7,6 +7,9 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
+node_modules/
+coverage/
+*.tsbuildinfo
 *.egg-info/
 private_exports/
 notion_cache.json
