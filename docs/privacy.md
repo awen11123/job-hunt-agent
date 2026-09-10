@@ -1,8 +1,41 @@
-# Privacy Rules
+# 隐私与数据边界
 
-This repository is public-safe by design.
+本项目采用“代码公开、真实求职数据私有”的默认设计。基础功能可以完全离线使用；只有用户主动启用模型服务或手动同步 Notion 时，相关数据才会离开本地应用。
 
-- Keep `.env` out of Git.
-- Use synthetic examples in `examples/`.
-- Do not commit real company pipelines, interview notes, contacts, Notion URLs, or keys.
-- Run `rtk python scripts/privacy_scan.py README.md docs examples src tests` before publishing.
+## 各模式的数据流
+
+| 模式 | 数据去向 | 会发送的数据 | 不会由本应用发送的数据 |
+| --- | --- | --- | --- |
+| 无模型模式 | 无远程目标 | 无 | Excel、面经 Markdown、设置和备份 |
+| Ollama 默认配置 | 本机 `127.0.0.1` | 助手输入、固定系统指令、结构化输出定义 | 整份 Excel、面经目录、备份 |
+| DeepSeek / 通义千问 / Moonshot / OpenAI 兼容接口 | 设置中显示的模型接口地址 | 助手输入、固定系统指令、结构化输出定义；API Key 作为鉴权头 | 未被写入助手输入的 Excel 和面经内容、备份 |
+| Notion 连接测试 | Notion API | Notion Token、面经数据库 ID | Excel 文件、面经正文、备份 |
+| Notion 面经同步 | Notion API | 所选面经的企业、轮次、时间、形式、结果、自评分、正文和标准章节标题 | Excel 文件、其他未选择的面经、备份 |
+
+Ollama 的默认地址是本机回环地址。如果用户把 Ollama 或 OpenAI 兼容接口改成远程地址，应按“远程模型”理解其数据边界。
+
+模型服务只接收用户在助手输入框中提交的文字，不会自行读取并上传完整 Excel 或面经目录。模型返回的写操作仍然只是待确认草稿；涉及面经正文时，预览页要求单独确认远程数据范围。
+
+## 本地保存内容
+
+- 投递记录：用户指定的 `.xlsx` 文件。
+- Excel 备份：设置中指定的本地备份目录。
+- 面经：本地 Markdown 正文，以及不含正文的 `index.json` 元数据索引。
+- 普通配置：文件路径、启用状态、模型名称、接口地址、凭证引用和 Notion 数据库 ID。
+- 凭证：API Key 与 Notion Token 只保存在操作系统凭证管理器，不写入 `config.json`。
+- 会话凭证：应用启动时临时生成，只注入当前本地页面和进程内存，不写入普通配置。
+
+本地网页会通过 `127.0.0.1` 读取上述数据，这是同一台电脑上的进程通信，不是云端同步。若用户指定的 Excel 位于 WPS、OneDrive 等同步目录，云盘客户端可能按其自身规则上传文件；该行为不由本应用控制。
+
+## 公开仓库规则
+
+- 只提交源代码、文档、测试和合成示例。
+- 不提交真实投递表、面经、联系人、账号信息、Notion 页面地址或凭证。
+- `.env`、本地构建产物、备份目录和私有导出目录必须保持忽略。
+- 发布前运行隐私扫描：
+
+```powershell
+python -X utf8 scripts/privacy_scan.py README.md docs examples frontend scripts src tests
+```
+
+自动化测试会额外检查 API 响应、普通配置、面经索引、面经文件、操作回执和测试日志，确保已配置的模型 Key 与 Notion Token 不会被复制到这些位置。

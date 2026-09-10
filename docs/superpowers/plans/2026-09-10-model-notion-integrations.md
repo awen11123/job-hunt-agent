@@ -19,7 +19,7 @@
 - Modify: `src/job_hunt_agent/ai/__init__.py`
 - Create: `tests/test_llm_provider.py`
 
-- [ ] **Step 1: Write failing provider-contract tests**
+- [x] **Step 1: Write failing provider-contract tests**
 
 ```python
 def test_openai_compatible_provider_validates_structured_output() -> None:
@@ -48,13 +48,13 @@ def test_ollama_provider_omits_authorization_header() -> None:
 
 Add tests for malformed JSON, HTTP timeout, missing API key for remote providers, and error messages that never contain response bodies or keys.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_llm_provider.py`
 
 Expected: FAIL because the provider-neutral classes do not exist.
 
-- [ ] **Step 3: Implement the protocol and generic adapter**
+- [x] **Step 3: Implement the protocol and generic adapter**
 
 ```python
 class LLMProvider(Protocol):
@@ -78,13 +78,13 @@ class ProviderConfig(BaseModel):
 
 `OpenAICompatibleProvider` must use `httpx.Client`, send `/chat/completions`, request JSON output when supported, and validate the response with the supplied Pydantic model. Refactor `DeepSeekInterviewAnalyzer` to delegate transport and validation to this adapter.
 
-- [ ] **Step 4: Run provider and existing interview tests**
+- [x] **Step 4: Run provider and existing interview tests**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_llm_provider.py tests/test_interview_service.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/ai tests/test_llm_provider.py
@@ -100,11 +100,11 @@ rtk proxy git commit -m "feat: add provider-neutral LLM interface"
 - Modify: `src/job_hunt_agent/local_app/config.py`
 - Create: `tests/test_secret_store_and_presets.py`
 
-- [ ] **Step 1: Add `keyring>=25.0.0` to project dependencies**
+- [x] **Step 1: Add `keyring>=25.0.0` to project dependencies**
 
 Store only credential references such as `deepseek:default` in JSON configuration. Never serialize secret values.
 
-- [ ] **Step 2: Write failing secret-store and preset tests**
+- [x] **Step 2: Write failing secret-store and preset tests**
 
 ```python
 def test_secret_store_round_trip_uses_windows_credential_backend() -> None:
@@ -124,17 +124,17 @@ def test_presets_are_openai_compatible_and_do_not_embed_keys() -> None:
     assert all(preset.api_key is None for preset in presets.values())
 ```
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_secret_store_and_presets.py`
 
 Expected: FAIL because the secret store and presets do not exist.
 
-- [ ] **Step 4: Implement presets and secret storage**
+- [x] **Step 4: Implement presets and secret storage**
 
 Presets must include DeepSeek, Qwen, Moonshot, a custom OpenAI-compatible endpoint, and Ollama. `SecretStore.delete` must remove only the named credential. Tests use an injected fake backend and never access the real Windows Credential Manager.
 
-- [ ] **Step 5: Run tests and privacy scan**
+- [x] **Step 5: Run tests and privacy scan**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_secret_store_and_presets.py tests/test_local_app_config.py`
 
@@ -142,7 +142,7 @@ Run: `rtk proxy python -X utf8 scripts/privacy_scan.py src tests`
 
 Expected: PASS with no privacy findings.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk proxy git add pyproject.toml src/job_hunt_agent/local_app src/job_hunt_agent/ai/presets.py tests/test_secret_store_and_presets.py
@@ -156,7 +156,7 @@ rtk proxy git commit -m "feat: secure model provider settings"
 - Modify: `src/job_hunt_agent/actions/service.py`
 - Create: `tests/test_llm_action_planner.py`
 
-- [ ] **Step 1: Write failing planner tests**
+- [x] **Step 1: Write failing planner tests**
 
 ```python
 def test_planner_returns_draft_and_never_calls_executor() -> None:
@@ -183,13 +183,13 @@ def test_unknown_tool_is_rejected_before_draft_creation() -> None:
 
 Add tests for missing required fields, read-only queries, remote-data disclosure metadata, and no-model fallback to the deterministic parser.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_llm_action_planner.py`
 
 Expected: FAIL because `LLMActionPlanner` does not exist.
 
-- [ ] **Step 3: Implement allow-listed planning**
+- [x] **Step 3: Implement allow-listed planning**
 
 ```python
 class ActionPlan(BaseModel):
@@ -206,13 +206,13 @@ class ActionPlan(BaseModel):
 
 The planner must validate action-specific payload models, convert writes to `ActionDraftService` drafts, and execute only read-only query handlers directly.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_llm_action_planner.py tests/test_action_draft_service.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/ai/action_planner.py src/job_hunt_agent/actions/service.py tests/test_llm_action_planner.py
@@ -227,7 +227,7 @@ rtk proxy git commit -m "feat: plan confirmed actions with LLMs"
 - Modify: `src/job_hunt_agent/interviews/local_store.py`
 - Create: `tests/test_interview_sync.py`
 
-- [ ] **Step 1: Write failing sync tests**
+- [x] **Step 1: Write failing sync tests**
 
 ```python
 def test_sync_writes_local_record_before_notion() -> None:
@@ -254,13 +254,13 @@ def test_notion_failure_keeps_retryable_local_record() -> None:
 
 Add tests for retry idempotency, update of an existing Notion page, disabled Notion, and token-free logs.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_interview_sync.py`
 
 Expected: FAIL because the sync service does not exist.
 
-- [ ] **Step 3: Implement the sync protocol and Notion target**
+- [x] **Step 3: Implement the sync protocol and Notion target**
 
 ```python
 class InterviewSyncTarget(Protocol):
@@ -280,13 +280,13 @@ class InterviewSyncService:
 
 The Notion target must use the existing `NotionClient`, write the standard interview body contract, and return only the page ID. Local state is updated after a successful response.
 
-- [ ] **Step 4: Run sync and existing Notion tests**
+- [x] **Step 4: Run sync and existing Notion tests**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_interview_sync.py tests/test_notion_integration.py tests/test_notion_interview_template.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/interviews tests/test_interview_sync.py
@@ -301,7 +301,7 @@ rtk proxy git commit -m "feat: sync local interviews to Notion"
 - Modify: `src/job_hunt_agent/web/schemas.py`
 - Create: `tests/test_web_integrations_api.py`
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 ```python
 def test_settings_response_never_returns_secret(client: TestClient) -> None:
@@ -325,17 +325,17 @@ def test_model_test_endpoint_reports_capability_without_echoing_response(client:
 
 Add tests for Notion connection status, interview sync retry, Ollama without a key, and model timeout responses.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_web_integrations_api.py`
 
 Expected: FAIL because integration routes do not exist.
 
-- [ ] **Step 3: Implement guarded settings and connectivity routes**
+- [x] **Step 3: Implement guarded settings and connectivity routes**
 
 Add `/api/settings/model`, `/api/settings/model/test`, `/api/settings/notion`, `/api/settings/notion/test`, and `/api/interviews/{id}/sync`. Mutation routes require the session token. API responses expose only booleans and redacted identifiers.
 
-- [ ] **Step 4: Run API tests and privacy scan**
+- [x] **Step 4: Run API tests and privacy scan**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_web_integrations_api.py tests/test_web_api.py`
 
@@ -343,7 +343,7 @@ Run: `rtk proxy python -X utf8 scripts/privacy_scan.py src tests`
 
 Expected: PASS with no privacy findings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/web tests/test_web_integrations_api.py
@@ -362,7 +362,7 @@ rtk proxy git commit -m "feat: expose model and Notion settings"
 - Create: `frontend/src/views/SettingsView.test.tsx`
 - Create: `frontend/src/views/InterviewsView.test.tsx`
 
-- [ ] **Step 1: Write failing frontend tests**
+- [x] **Step 1: Write failing frontend tests**
 
 ```tsx
 it("saves a provider key without rendering it back", async () => {
@@ -378,17 +378,17 @@ it("saves a provider key without rendering it back", async () => {
 
 Add tests for Ollama key omission, remote-data disclosure in action previews, Notion connection status, and sync retry.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy npm test -- --run`
 
 Expected: FAIL because the integration controls do not exist.
 
-- [ ] **Step 3: Implement settings and sync states**
+- [x] **Step 3: Implement settings and sync states**
 
 Render model and Notion settings as compact forms. Display only `未配置`, `已配置`, `连接成功`, or `连接失败`; never render stored secret values. The action preview must require a separate consent checkbox when disclosure includes interview notes.
 
-- [ ] **Step 4: Run frontend verification**
+- [x] **Step 4: Run frontend verification**
 
 Run: `rtk proxy npm test -- --run`
 
@@ -398,7 +398,7 @@ Run: `rtk proxy npm run build`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add frontend
@@ -412,15 +412,15 @@ rtk proxy git commit -m "feat: configure model and Notion integrations"
 - Modify: `docs/privacy.md`
 - Create: `tests/test_integration_privacy_boundaries.py`
 
-- [ ] **Step 1: Add privacy-boundary tests**
+- [x] **Step 1: Add privacy-boundary tests**
 
 Test that logs, API responses, config JSON, local interview indexes, and action receipts do not contain configured API keys or Notion tokens.
 
-- [ ] **Step 2: Document supported modes**
+- [x] **Step 2: Document supported modes**
 
 README must describe no-model mode, remote provider mode, Ollama mode, local Markdown interviews, and optional Notion sync. `docs/privacy.md` must list exactly which data leaves the computer for each provider mode.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 Run: `rtk proxy python -X utf8 -m pytest -q`
 
@@ -434,7 +434,7 @@ Run: `rtk proxy python -X utf8 scripts/privacy_scan.py README.md docs examples f
 
 Expected: all commands pass with no privacy findings.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 rtk proxy git add README.md docs/privacy.md tests/test_integration_privacy_boundaries.py
