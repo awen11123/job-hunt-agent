@@ -51,4 +51,8 @@ class TrackerApplicationPatch(_TrackerModel):
     def reject_empty_patch(cls, value: Any) -> Any:
         if isinstance(value, dict) and not value:
             raise ValueError("empty patch is not allowed")
+        if isinstance(value, dict):
+            for field_name in ("company", "role", "status"):
+                if field_name in value and value[field_name] is None:
+                    raise ValueError(f"{field_name} cannot be null")
         return value

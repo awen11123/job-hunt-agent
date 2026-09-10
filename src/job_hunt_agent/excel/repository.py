@@ -5,11 +5,14 @@ import hashlib
 import os
 import re
 import shutil
+import threading
+import time
 import unicodedata
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Final
+from typing import BinaryIO, Callable, Final, Iterator
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell, MergedCell
@@ -48,6 +51,10 @@ FIELDS: Final = (
 )
 CLOSED_MARKERS: Final = ("未通过", "结束", "拒绝", "放弃", "终止", "淘汰")
 DIVIDER_COLOR: Final = "E7E6E3"
+LOCK_TIMEOUT_SECONDS = 10.0
+_LOCK_POLL_SECONDS: Final = 0.05
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -125,6 +132,71 @@ def _write_cell_snapshot(cell: Cell, snapshot: _CellSnapshot) -> None:
     cell.comment = copy.copy(snapshot.comment)
 
 
+def _try_lock_file(handle: BinaryIO) -> bool:
+    handle.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock_file(handle: BinaryIO) -> None:
+    handle.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _exclusive_workbook_lock(workbook_path: Path) -> Iterator[None]:
+    lock_key = os.path.normcase(str(workbook_path.resolve()))
+    with _THREAD_LOCKS_GUARD:
+        thread_lock = _THREAD_LOCKS.setdefault(lock_key, threading.Lock())
+    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+    if not thread_lock.acquire(timeout=LOCK_TIMEOUT_SECONDS):
+        raise RuntimeError("工作簿正由另一个写入任务使用，请稍后重试")
+
+    handle: BinaryIO | None = None
+    file_locked = False
+    try:
+        sidecar = workbook_path.with_name(f".{workbook_path.name}.lock")
+        handle = sidecar.open("a+b")
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        while not (file_locked := _try_lock_file(handle)):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("工作簿正由另一个写入任务使用，请稍后重试")
+            time.sleep(min(_LOCK_POLL_SECONDS, remaining))
+        yield
+    finally:
+        try:
+            if file_locked and handle is not None:
+                _unlock_file(handle)
+        finally:
+            try:
+                if handle is not None:
+                    handle.close()
+            finally:
+                # Unlinking a locked inode can let another process bypass the sidecar.
+                thread_lock.release()
+
+
 class ExcelApplicationRepository:
     def __init__(self, workbook_path: Path, backup_dir: Path) -> None:
         self.workbook_path = Path(workbook_path)
@@ -166,9 +238,19 @@ class ExcelApplicationRepository:
             if any(item.record.id == record.id for item in existing):
                 raise ValueError("重复投递记录：企业、岗位和投递日期已存在")
             self._insert_application(sheet, record, existing)
+            if _is_closed(record.status):
+                created = self._find_application(sheet, record.id)
+                self._move_application_row(
+                    sheet,
+                    created,
+                    record,
+                    {},
+                    below_divider=True,
+                )
 
-        self._mutate(mutate)
-        return self.get_application(record.id)
+        with _exclusive_workbook_lock(self.workbook_path):
+            self._mutate(mutate)
+            return self.get_application(record.id)
 
     def update_application(
         self,
@@ -202,16 +284,35 @@ class ExcelApplicationRepository:
             ):
                 raise ValueError("重复投递记录：企业、岗位和投递日期已存在")
 
-            if _is_closed(prospective.status):
-                self._move_below_divider(sheet, located, prospective, changes)
+            was_closed = _is_closed(located.record.status)
+            is_closed = _is_closed(prospective.status)
+            if not was_closed and is_closed:
+                self._move_application_row(
+                    sheet,
+                    located,
+                    prospective,
+                    changes,
+                    below_divider=True,
+                )
+            elif was_closed and not is_closed:
+                self._move_application_row(
+                    sheet,
+                    located,
+                    prospective,
+                    changes,
+                    below_divider=False,
+                )
             else:
                 self._update_in_place(sheet, located, prospective, changes)
+                if is_closed:
+                    self._clear_strike(sheet, located.row)
             self._update_company_total(sheet)
             updated_id = prospective_id
 
-        self._mutate(mutate)
-        assert updated_id is not None
-        return self.get_application(updated_id)
+        with _exclusive_workbook_lock(self.workbook_path):
+            self._mutate(mutate)
+            assert updated_id is not None
+            return self.get_application(updated_id)
 
     def _load_source(self):
         try:
@@ -490,13 +591,22 @@ class ExcelApplicationRepository:
                         end_column=column,
                     )
 
+    @staticmethod
+    def _clear_strike(sheet: Worksheet, row: int) -> None:
+        for column in range(1, len(HEADERS) + 1):
+            font = copy.copy(sheet.cell(row, column).font)
+            font.strike = False
+            sheet.cell(row, column).font = font
+
     @classmethod
-    def _move_below_divider(
+    def _move_application_row(
         cls,
         sheet: Worksheet,
         located: _LocatedApplication,
         prospective: TrackerApplication,
         changes: dict[str, object],
+        *,
+        below_divider: bool,
     ) -> None:
         original_max_row = sheet.max_row
         max_column = max(sheet.max_column, len(HEADERS))
@@ -528,38 +638,45 @@ class ExcelApplicationRepository:
                 sheet.unmerge_cells(str(merged))
 
         ordered = [row for row in rows if row is not target]
-        divider_source_row = next(
-            (
-                row
-                for row in range(2, original_max_row + 1)
-                if cls._is_divider_row(sheet, row)
-            ),
-            None,
-        )
-        divider = next(
-            (row for row in ordered if row.source_row == divider_source_row),
-            None,
-        )
-        created_divider = divider is None
-        if divider is None:
-            divider = cls._new_divider_snapshot(max_column)
-            insertion_index = next(
+        divider: _RowSnapshot | None = None
+        created_divider = False
+        if below_divider:
+            divider_source_row = next(
                 (
-                    index
-                    for index, row in enumerate(ordered)
-                    if row.source_row is not None
-                    and (
-                        cls._is_statistics_snapshot(row)
-                        or _is_closed(
-                            str(row.cells[4].value or "") if len(row.cells) >= 5 else ""
-                        )
-                    )
+                    row
+                    for row in range(2, original_max_row + 1)
+                    if cls._is_divider_row(sheet, row)
                 ),
-                len(ordered),
+                None,
             )
-            ordered.insert(insertion_index, divider)
-        divider_index = ordered.index(divider)
-        ordered.insert(divider_index + 1, target)
+            divider = next(
+                (row for row in ordered if row.source_row == divider_source_row),
+                None,
+            )
+            created_divider = divider is None
+            if divider is None:
+                divider = cls._new_divider_snapshot(max_column)
+                insertion_index = next(
+                    (
+                        index
+                        for index, row in enumerate(ordered)
+                        if row.source_row is not None
+                        and (
+                            cls._is_statistics_snapshot(row)
+                            or _is_closed(
+                                str(row.cells[4].value or "")
+                                if len(row.cells) >= 5
+                                else ""
+                            )
+                        )
+                    ),
+                    len(ordered),
+                )
+                ordered.insert(insertion_index, divider)
+            divider_index = ordered.index(divider)
+            ordered.insert(divider_index + 1, target)
+        else:
+            ordered.insert(0, target)
 
         source_to_target = {
             row.source_row: target_row
@@ -568,8 +685,9 @@ class ExcelApplicationRepository:
         }
         for target_row, snapshot in enumerate(ordered, start=2):
             cls._write_row_snapshot(sheet, target_row, snapshot)
-        divider_row = ordered.index(divider) + 2
         if created_divider:
+            assert divider is not None
+            divider_row = ordered.index(divider) + 2
             for column in range(1, len(HEADERS) + 1):
                 cell = sheet.cell(divider_row, column)
                 cell.fill = PatternFill("solid", fgColor=DIVIDER_COLOR)
@@ -584,10 +702,7 @@ class ExcelApplicationRepository:
                 field,
                 getattr(prospective, field),
             )
-        for column in range(1, len(HEADERS) + 1):
-            font = copy.copy(sheet.cell(destination_row, column).font)
-            font.strike = False
-            sheet.cell(destination_row, column).font = font
+        cls._clear_strike(sheet, destination_row)
 
         for merged in merges:
             source_rows = list(range(merged.min_row, merged.max_row + 1))

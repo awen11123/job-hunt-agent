@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -191,6 +193,150 @@ def record_by_role(repository: ExcelApplicationRepository, role: str):
     return next(record for record in repository.list_applications() if record.role == role)
 
 
+def synchronize_first_workbook_loads(
+    monkeypatch: pytest.MonkeyPatch,
+    workbook_path: Path,
+) -> None:
+    real_load_workbook = repository_module.load_workbook
+    barrier = threading.Barrier(2)
+    seen_threads: set[int] = set()
+    guard = threading.Lock()
+
+    def synchronized_load(path: str | Path, *args, **kwargs):
+        workbook = real_load_workbook(path, *args, **kwargs)
+        should_wait = False
+        if Path(path).resolve() == workbook_path.resolve():
+            thread_id = threading.get_ident()
+            with guard:
+                if thread_id not in seen_threads:
+                    seen_threads.add(thread_id)
+                    should_wait = True
+        if should_wait:
+            try:
+                barrier.wait(timeout=0.2)
+            except threading.BrokenBarrierError:
+                pass
+        return workbook
+
+    monkeypatch.setattr(repository_module, "load_workbook", synchronized_load)
+
+
+def test_concurrent_creates_from_two_repositories_do_not_lose_updates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    first = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    second = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    synchronize_first_workbook_loads(monkeypatch, workbook_path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                repository.create_application,
+                TrackerApplicationDraft(
+                    company=f"并发公司-{index}",
+                    role=f"并发岗位-{index}",
+                    applied_date=date(2026, 9, 10 + index),
+                ),
+            )
+            for index, repository in enumerate((first, second), start=1)
+        ]
+        created = [future.result() for future in futures]
+
+    assert {record.role for record in created} == {"并发岗位-1", "并发岗位-2"}
+    assert {record.role for record in first.list_applications()}.issuperset(
+        {"并发岗位-1", "并发岗位-2"}
+    )
+
+
+def test_concurrent_updates_from_two_repositories_do_not_lose_updates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    first = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    second = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    first_target = record_by_role(first, "Agent 工程师")
+    second_target = record_by_role(second, "后端工程师")
+    synchronize_first_workbook_loads(monkeypatch, workbook_path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                first.update_application,
+                first_target.id,
+                TrackerApplicationPatch(notes="并发更新-1"),
+            ),
+            executor.submit(
+                second.update_application,
+                second_target.id,
+                TrackerApplicationPatch(notes="并发更新-2"),
+            ),
+        ]
+        updated = [future.result() for future in futures]
+
+    assert {record.notes for record in updated} == {"并发更新-1", "并发更新-2"}
+    records = first.list_applications()
+    assert next(record for record in records if record.id == first_target.id).notes == "并发更新-1"
+    assert next(record for record in records if record.id == second_target.id).notes == "并发更新-2"
+
+
+def test_write_lock_timeout_has_clear_private_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    monkeypatch.setattr(repository_module, "LOCK_TIMEOUT_SECONDS", 0.01, raising=False)
+    monkeypatch.setattr(
+        repository_module,
+        "_try_lock_file",
+        lambda _handle: False,
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="另一个写入任务") as error:
+        repository.create_application(
+            TrackerApplicationDraft(company="锁测试", role="锁测试岗位")
+        )
+
+    assert str(workbook_path) not in str(error.value)
+
+
+def test_unlock_failure_still_releases_handle_and_thread_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    first = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    second = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    real_unlock = repository_module._unlock_file
+    unlock_calls = 0
+
+    def fail_first_unlock(handle) -> None:
+        nonlocal unlock_calls
+        unlock_calls += 1
+        real_unlock(handle)
+        if unlock_calls == 1:
+            raise OSError("simulated unlock failure")
+
+    monkeypatch.setattr(repository_module, "_unlock_file", fail_first_unlock)
+    monkeypatch.setattr(repository_module, "LOCK_TIMEOUT_SECONDS", 0.05)
+
+    with pytest.raises(OSError, match="simulated unlock failure"):
+        first.create_application(
+            TrackerApplicationDraft(company="首次写入", role="首次岗位")
+        )
+
+    created = second.create_application(
+        TrackerApplicationDraft(company="后续写入", role="后续岗位")
+    )
+
+    assert created.role == "后续岗位"
+    assert workbook_path.with_name(f".{workbook_path.name}.lock").read_bytes() == b"\0"
+
+
 def test_repository_lists_newest_first_and_inherits_merged_company_and_link(
     tmp_path: Path,
 ) -> None:
@@ -297,6 +443,53 @@ def test_create_makes_exact_backup_and_preserves_layout(tmp_path: Path) -> None:
     after.close()
 
 
+def test_create_closed_application_places_it_first_below_existing_divider(
+    tmp_path: Path,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    before = load_workbook(workbook_path)
+    before_sheet = before["投递总览"]
+    source_font = copy.copy(before_sheet["A2"].font)
+    source_font.strike = False
+    before_sheet["A2"].font = source_font
+    before.save(workbook_path)
+    expected_style = copy.copy(before_sheet["A2"]._style)
+    before.close()
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+
+    created = repository.create_application(
+        TrackerApplicationDraft(
+            company="新结束公司",
+            role="新结束岗位",
+            applied_date=date(2026, 9, 10),
+            status="简历未通过",
+            next_step="结束",
+            job_url="https://example.com/new-closed",
+        )
+    )
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    assert sheet["B2"].value == "Agent 工程师"
+    assert sheet["A5"].value is None
+    assert sheet["A5"].fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+    assert sheet["B6"].value == "新结束岗位"
+    assert sheet["B7"].value == "旧岗位"
+    assert sheet["A6"]._style == expected_style
+    assert sheet["H6"].value == "查看岗位"
+    assert sheet["H6"].hyperlink.target == "https://example.com/new-closed"
+    assert not any(sheet.cell(6, column).font.strike for column in range(1, 10))
+    assert sheet["A9"].value == "投递公司总数：4"
+    assert sum(
+        1
+        for row in range(2, sheet.max_row + 1)
+        if sheet["A" + str(row)].value is None
+        and sheet["A" + str(row)].fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+    ) == 1
+    assert created == repository.get_application(created.id)
+    workbook.close()
+
+
 def test_update_changes_only_requested_fields_in_place(tmp_path: Path) -> None:
     workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
     repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
@@ -325,6 +518,89 @@ def test_update_changes_only_requested_fields_in_place(tmp_path: Path) -> None:
     assert sheet["I2"].comment.text == "必须保留"
     assert sheet["H2"].value == "查看岗位"
     assert sheet["H2"].hyperlink.target == "https://example.com/updated"
+    workbook.close()
+
+
+def test_reopening_closed_application_moves_it_to_top_and_preserves_row(
+    tmp_path: Path,
+) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    sheet["A6"].fill = PatternFill("solid", fgColor="F4CCCC")
+    company_font = copy.copy(sheet["A6"].font)
+    company_font.strike = False
+    sheet["A6"].font = company_font
+    sheet["H6"].value = "历史入口"
+    sheet["H6"].alignment = Alignment(horizontal="center", vertical="center")
+    link_font = copy.copy(sheet["H6"].font)
+    link_font.strike = False
+    sheet["H6"].font = link_font
+    sheet["H6"].comment = Comment("历史链接批注", "tester")
+    workbook.save(workbook_path)
+    workbook.close()
+
+    before = load_workbook(workbook_path)
+    expected_company_style = copy.copy(before["投递总览"]["A6"]._style)
+    expected_link_style = copy.copy(before["投递总览"]["H6"]._style)
+    before.close()
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "旧岗位")
+
+    reopened = repository.update_application(
+        target.id,
+        TrackerApplicationPatch(status="重新开放"),
+    )
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    assert reopened.status == "重新开放"
+    assert sheet["B2"].value == "旧岗位"
+    assert sheet["E2"].value == "重新开放"
+    assert sheet["A2"]._style == expected_company_style
+    assert sheet["H2"].value == "历史入口"
+    assert sheet["H2"].hyperlink.target == "https://example.com/old"
+    assert sheet["H2"]._style == expected_link_style
+    assert sheet["H2"].comment.text == "历史链接批注"
+    assert sheet["A6"].value is None
+    assert sheet["A6"].fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+    assert sheet["A8"].value == "投递公司总数：3"
+    assert sum(
+        1
+        for row in range(2, sheet.max_row + 1)
+        if sheet["A" + str(row)].value is None
+        and sheet["A" + str(row)].fill.fgColor.rgb.endswith(DIVIDER_COLOR)
+    ) == 1
+    workbook.close()
+
+
+def test_closed_to_closed_update_stays_in_its_existing_row(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    sheet.insert_rows(7)
+    sheet["A7"] = "更早公司"
+    sheet["B7"] = "更早岗位"
+    sheet["C7"] = date(2026, 8, 1)
+    sheet["E7"] = "结束"
+    sheet["F7"] = "结束"
+    sheet.auto_filter.ref = "A1:I9"
+    workbook.save(workbook_path)
+    workbook.close()
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+    target = record_by_role(repository, "更早岗位")
+
+    repository.update_application(
+        target.id,
+        TrackerApplicationPatch(status="流程终止", notes="原因更新"),
+    )
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["投递总览"]
+    assert sheet["B6"].value == "旧岗位"
+    assert sheet["B7"].value == "更早岗位"
+    assert sheet["E7"].value == "流程终止"
+    assert sheet["I7"].value == "原因更新"
     workbook.close()
 
 
@@ -546,6 +822,18 @@ def test_models_reject_empty_patch_and_unknown_fields() -> None:
         TrackerApplicationPatch()
     with pytest.raises(ValidationError, match="extra_forbidden"):
         TrackerApplicationPatch(unknown="value")
+
+
+@pytest.mark.parametrize("field_name", ("company", "role", "status"))
+def test_patch_rejects_explicit_null_for_required_text_fields(field_name: str) -> None:
+    with pytest.raises(ValidationError, match=f"{field_name} cannot be null"):
+        TrackerApplicationPatch(**{field_name: None})
+
+
+def test_patch_allows_explicit_null_for_clearable_fields() -> None:
+    patch = TrackerApplicationPatch(location=None, next_step=None, job_url=None)
+
+    assert patch.model_fields_set == {"location", "next_step", "job_url"}
 
 
 def test_unknown_id_raises_key_error(tmp_path: Path) -> None:
