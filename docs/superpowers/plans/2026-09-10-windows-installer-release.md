@@ -17,7 +17,7 @@
 - Create: `src/job_hunt_agent/__main__.py`
 - Create: `tests/test_windows_launcher.py`
 
-- [ ] **Step 1: Write failing launcher lifecycle tests**
+- [x] **Step 1: Write failing launcher lifecycle tests**
 
 ```python
 def test_second_launcher_reuses_healthy_instance() -> None:
@@ -39,23 +39,23 @@ def test_launcher_opens_browser_only_after_health_check() -> None:
 
 Add tests for stale instance files, port collisions, graceful shutdown, and loopback-only binding.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_windows_launcher.py`
 
 Expected: FAIL because the hardened launcher does not exist.
 
-- [ ] **Step 3: Implement the launcher**
+- [x] **Step 3: Implement the launcher**
 
 `WindowsLauncher.start()` must acquire a per-user lock, reuse a healthy process, choose an available port, generate a session token, start Uvicorn on `127.0.0.1`, poll `/api/health`, and open the browser only after the health check succeeds. Register normal process and signal cleanup without killing a reused instance.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_windows_launcher.py tests/test_web_launcher.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk proxy git add src/job_hunt_agent/web/launcher.py src/job_hunt_agent/__main__.py tests/test_windows_launcher.py
@@ -71,11 +71,11 @@ rtk proxy git commit -m "feat: harden Windows local launcher"
 - Create: `packaging/job_hunt_agent.spec`
 - Create: `tests/test_packaged_resources.py`
 
-- [ ] **Step 1: Add release tooling**
+- [x] **Step 1: Add release tooling**
 
 Add a `release` optional dependency group containing `pyinstaller>=6.10.0`. Keep Inno Setup outside Python dependencies.
 
-- [ ] **Step 2: Write failing resource-location tests**
+- [x] **Step 2: Write failing resource-location tests**
 
 ```python
 def test_resource_root_uses_package_directory_when_not_frozen(monkeypatch) -> None:
@@ -88,17 +88,17 @@ def test_resource_root_uses_pyinstaller_bundle(monkeypatch, tmp_path: Path) -> N
     assert resource_root() == tmp_path / "web_static"
 ```
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_packaged_resources.py`
 
 Expected: FAIL because `resource_root` does not exist.
 
-- [ ] **Step 4: Implement frontend build copying and the spec file**
+- [x] **Step 4: Implement frontend build copying and the spec file**
 
 `scripts/build_frontend.py` must run `npm ci`, `npm run typecheck`, `npm test -- --run`, and `npm run build` in `frontend`, then copy `frontend/dist` to `src/job_hunt_agent/web_static`. `job_hunt_agent.spec` must include `web_static` as data and use `job_hunt_agent.__main__` as the entry point.
 
-- [ ] **Step 5: Build and inspect the application directory**
+- [x] **Step 5: Build and inspect the application directory**
 
 Run: `rtk proxy python -X utf8 scripts/build_frontend.py`
 
@@ -106,7 +106,7 @@ Run: `rtk proxy python -X utf8 -m PyInstaller --clean packaging/job_hunt_agent.s
 
 Expected: `dist/JobHuntAgent/JobHuntAgent.exe` exists and `dist/JobHuntAgent/_internal/web_static/index.html` is packaged.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_packaged_resources.py`
 
@@ -122,7 +122,7 @@ rtk proxy git commit -m "build: package local web application"
 - Create: `scripts/build_windows_installer.ps1`
 - Create: `tests/test_installer_manifest.py`
 
-- [ ] **Step 1: Write failing installer-manifest tests**
+- [x] **Step 1: Write failing installer-manifest tests**
 
 ```python
 def test_installer_creates_shortcut_and_keeps_data_on_uninstall() -> None:
@@ -135,17 +135,17 @@ def test_installer_creates_shortcut_and_keeps_data_on_uninstall() -> None:
 
 Add tests for per-user installation, semantic version injection, installer output naming, and absence of private paths.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `rtk proxy python -X utf8 -m pytest -q tests/test_installer_manifest.py`
 
 Expected: FAIL because `installer.iss` does not exist.
 
-- [ ] **Step 3: Implement the installer and build script**
+- [x] **Step 3: Implement the installer and build script**
 
 The Inno Setup script must install below `{localappdata}/Programs/JobHuntAgent`, create Start Menu and optional desktop shortcuts, and leave `%APPDATA%/JobHuntAgent` untouched during uninstall. `build_windows_installer.ps1` must validate the PyInstaller directory, pass the version to `ISCC.exe`, and write `dist/installer/JobHuntAgent-Setup-<version>.exe`.
 
-- [ ] **Step 4: Build and verify**
+- [x] **Step 4: Build and verify**
 
 Run: `rtk proxy powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_installer.ps1 -Version 0.2.0`
 
