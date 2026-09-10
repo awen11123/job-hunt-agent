@@ -33,6 +33,37 @@ def test_local_config_round_trip_only_serializes_settings(tmp_path: Path) -> Non
     assert all(term not in serialized.lower() for term in ("token", "api_key", "secret"))
 
 
+def test_save_excludes_sensitive_fields_declared_by_config_subclass(tmp_path: Path) -> None:
+    class SensitiveLocalAppConfig(LocalAppConfig):
+        token: str
+        api_key: str
+        secret: str
+
+    store = LocalConfigStore(tmp_path / "config.json")
+    config = SensitiveLocalAppConfig(
+        backup_dir=tmp_path / "backups",
+        interview_dir=tmp_path / "interviews",
+        token="not-a-real-token",
+        api_key="not-a-real-api-key",
+        secret="not-a-real-secret",
+    )
+
+    store.save(config)
+
+    serialized = store.path.read_text(encoding="utf-8")
+    assert set(json.loads(serialized)) == set(LocalAppConfig.model_fields)
+    assert all(term not in serialized.lower() for term in ("token", "api_key", "secret"))
+
+
+def test_local_config_rejects_extra_fields(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        LocalAppConfig(
+            backup_dir=tmp_path / "backups",
+            interview_dir=tmp_path / "interviews",
+            token="not-a-real-token",
+        )
+
+
 def test_defaults_are_below_supplied_app_data_root(tmp_path: Path) -> None:
     config = LocalAppConfig.defaults(tmp_path)
 
@@ -111,16 +142,26 @@ def test_failed_atomic_replace_keeps_original_and_removes_temporary_file(
     assert list(tmp_path.iterdir()) == [store.path]
 
 
-def test_save_validates_serialized_data_before_replacing(tmp_path: Path) -> None:
-    class InvalidSerializedConfig(LocalAppConfig):
-        def model_dump_json(self, **kwargs: object) -> str:
-            return "{}"
-
+def test_validation_failure_keeps_original_and_removes_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store = LocalConfigStore(tmp_path / "config.json")
-    config = InvalidSerializedConfig.defaults(tmp_path)
+    original = LocalAppConfig.defaults(tmp_path / "original")
+    replacement = LocalAppConfig.defaults(tmp_path / "replacement")
+    store.save(original)
+    original_json = store.path.read_text(encoding="utf-8")
 
-    with pytest.raises(ValidationError):
-        store.save(config)
+    def reject_serialized_data(cls: type[LocalAppConfig], data: str) -> LocalAppConfig:
+        raise ValueError("simulated validation failure")
 
-    assert not store.path.exists()
-    assert list(tmp_path.iterdir()) == []
+    monkeypatch.setattr(
+        LocalAppConfig,
+        "model_validate_json",
+        classmethod(reject_serialized_data),
+    )
+
+    with pytest.raises(ValueError, match="simulated validation failure"):
+        store.save(replacement)
+
+    assert store.path.read_text(encoding="utf-8") == original_json
+    assert list(tmp_path.iterdir()) == [store.path]

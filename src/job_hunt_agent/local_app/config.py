@@ -2,10 +2,12 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class LocalAppConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     excel_path: Path | None = None
     backup_dir: Path
     interview_dir: Path
@@ -32,6 +34,9 @@ class LocalConfigStore:
     def save(self, config: LocalAppConfig) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
+        safe_config = LocalAppConfig(
+            **{field_name: getattr(config, field_name) for field_name in LocalAppConfig.model_fields}
+        )
 
         try:
             with NamedTemporaryFile(
@@ -43,7 +48,7 @@ class LocalConfigStore:
                 delete=False,
             ) as temporary:
                 temporary_path = Path(temporary.name)
-                temporary.write(config.model_dump_json(indent=2))
+                temporary.write(safe_config.model_dump_json(indent=2))
 
             LocalAppConfig.model_validate_json(temporary_path.read_text(encoding="utf-8"))
             os.replace(temporary_path, self.path)
