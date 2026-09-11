@@ -221,6 +221,18 @@ def synchronize_first_workbook_loads(
     monkeypatch.setattr(repository_module, "load_workbook", synchronized_load)
 
 
+def test_list_applications_accepts_wps_text_date_marker(tmp_path: Path) -> None:
+    workbook_path = build_synthetic_tracker(tmp_path / "tracker.xlsx")
+    workbook = load_workbook(workbook_path)
+    workbook["投递总览"]["C2"] = "'2026-09-10"
+    workbook.save(workbook_path)
+    workbook.close()
+
+    repository = ExcelApplicationRepository(workbook_path, tmp_path / "backups")
+
+    assert repository.list_applications()[0].applied_date == date(2026, 9, 10)
+
+
 def test_concurrent_creates_from_two_repositories_do_not_lose_updates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
